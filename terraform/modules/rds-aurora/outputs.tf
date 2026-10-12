@@ -1,13 +1,13 @@
 output "cluster_endpoint" {
-  value = aws_rds_cluster.this.endpoint
+  value = var.enable_aurora_cluster ? aws_rds_cluster.this[0].endpoint : aws_db_instance.this[0].address
 }
 
 output "cluster_reader_endpoint" {
-  value = aws_rds_cluster.this.reader_endpoint
+  value = var.enable_aurora_cluster ? aws_rds_cluster.this[0].reader_endpoint : aws_db_instance.this[0].address
 }
 
 output "cluster_identifier" {
-  value = aws_rds_cluster.this.cluster_identifier
+  value = var.enable_aurora_cluster ? aws_rds_cluster.this[0].cluster_identifier : aws_db_instance.this[0].identifier
 }
 
 output "secret_arn" {

@@ -78,6 +78,7 @@ module "rds_aurora" {
   eks_node_security_group_id = module.eks.node_security_group_id
   instance_class             = "db.r7g.large"
   instance_count             = 2
+  enable_aurora_cluster      = true
   deletion_protection        = true
   skip_final_snapshot        = false
   tags                       = local.common_tags

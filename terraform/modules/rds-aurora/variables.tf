@@ -60,6 +60,12 @@ variable "secret_recovery_window" {
   default = 7
 }
 
+variable "enable_aurora_cluster" {
+  type        = bool
+  default     = false
+  description = "Set to true to use Aurora multi-node cluster (prod). When false, provisions standard Free-Tier RDS PostgreSQL instance (dev)."
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
