@@ -150,6 +150,8 @@ jobs:
 
       - name: Install External Secrets Operator (ESO)
         run: |
+          echo "Ensuring External Secrets CRDs are installed..."
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/deploy/crds/bundle.yaml --server-side || true
           if helm status external-secrets -n external-secrets >/dev/null 2>&1; then
             echo "external-secrets is already installed. Skipping reinstall."
           else
@@ -192,8 +194,9 @@ jobs:
 
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
+          kubectl create namespace online-boutique --dry-run=client -o yaml | kubectl apply -f -
           if [ -d "kubernetes/external-secrets" ]; then
-            kubectl apply -f kubernetes/external-secrets/ || true
+            kubectl apply -f kubernetes/external-secrets/
           fi
 
       - name: Deploy Google Online Boutique Application via Helm
