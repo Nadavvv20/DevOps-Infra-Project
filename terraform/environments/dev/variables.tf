@@ -24,3 +24,9 @@ variable "enable_ecr" {
   description = "Set to true to provision private AWS ECR repositories for all 11 microservices (Option B)"
 }
 
+variable "access_entries" {
+  type        = any
+  default     = {}
+  description = "Map of access entries to grant cluster access to IAM principals (e.g. AWS Console users)"
+}
+

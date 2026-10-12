@@ -86,7 +86,11 @@ jobs:
       - name: Export Outputs
         id: tf_outputs
         run: |
-          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "online-boutique-${{ github.event.inputs.environment }}")
+          CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          if RAW_OUT=$(terraform output -raw cluster_name 2>/dev/null) && [ -n "$RAW_OUT" ] && [[ "$RAW_OUT" != *"Warning"* ]]; then
+            CLUSTER_NAME="$RAW_OUT"
+          fi
+          echo "Using cluster name: ${CLUSTER_NAME}"
           echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
 
   apps-up:

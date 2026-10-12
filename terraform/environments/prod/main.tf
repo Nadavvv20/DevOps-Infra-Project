@@ -58,6 +58,7 @@ module "eks" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   intra_subnet_ids   = module.vpc.intra_subnet_ids
+  access_entries     = var.access_entries
   tags               = local.common_tags
 }
 
