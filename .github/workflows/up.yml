@@ -172,7 +172,7 @@ jobs:
       - name: Install Prometheus & Grafana (kube-prometheus-stack)
         run: |
           if helm status prometheus -n monitoring >/dev/null 2>&1; then
-            echo "prometheus stack is already installed. Skipping reinstall."
+            echo "prometheus stack is already installed."
           else
             helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
             helm repo update
@@ -180,13 +180,19 @@ jobs:
               --namespace monitoring \
               --create-namespace \
               --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+              --set grafana.env.GF_SERVER_ROOT_URL="%(protocol)s://%(domain)s:%(http_port)s/grafana/" \
+              --set grafana.env.GF_SERVER_SERVE_FROM_SUB_PATH=true \
               --wait --timeout 7m
           fi
+          echo "Ensuring Grafana subpath /grafana is configured..."
+          kubectl set env deployment/prometheus-grafana -n monitoring \
+            GF_SERVER_ROOT_URL="%(protocol)s://%(domain)s:%(http_port)s/grafana/" \
+            GF_SERVER_SERVE_FROM_SUB_PATH="true" 2>/dev/null || true
 
       - name: Install ArgoCD
         run: |
           if helm status argocd -n argocd >/dev/null 2>&1; then
-            echo "argocd is already installed. Skipping reinstall."
+            echo "argocd is already installed."
           else
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
@@ -194,8 +200,13 @@ jobs:
               --namespace argocd \
               --create-namespace \
               --set server.service.type=ClusterIP \
+              --set "configs.params.server\.basehref=/argocd" \
+              --set "configs.params.server\.rootpath=/argocd" \
               --wait --timeout 5m
           fi
+          echo "Ensuring ArgoCD subpath /argocd is configured..."
+          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.basehref":"/argocd","server.rootpath":"/argocd"}}' 2>/dev/null || true
+          kubectl rollout restart deployment/argocd-server -n argocd 2>/dev/null || true
 
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
