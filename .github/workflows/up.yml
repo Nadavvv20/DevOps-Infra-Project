@@ -80,13 +80,7 @@ jobs:
               -target=module.iam_roles
           else
             echo "Applying full infrastructure..."
-            terraform apply -auto-approve \
-              -target=module.vpc \
-              -target=module.eks \
-              -target=module.karpenter \
-              -target=module.rds_aurora \
-              -target=module.elasticache \
-              -target=module.iam_roles
+            terraform apply -auto-approve
           fi
 
       - name: Export Outputs

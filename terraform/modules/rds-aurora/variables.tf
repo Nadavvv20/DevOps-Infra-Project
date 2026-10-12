@@ -42,7 +42,7 @@ variable "instance_count" {
 
 variable "backup_retention_period" {
   type    = number
-  default = 7
+  default = 1
 }
 
 variable "deletion_protection" {

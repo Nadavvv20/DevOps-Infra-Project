@@ -70,17 +70,6 @@ module "eks" {
     "karpenter.sh/discovery" = var.cluster_name
   }
 
-  cluster_security_group_additional_rules = {
-    ingress_nodes_ephemeral_ports_tcp = {
-      description                = "Nodes to cluster API"
-      protocol                   = "tcp"
-      from_port                  = 443
-      to_port                    = 443
-      type                       = "ingress"
-      source_node_security_group = true
-    }
-  }
-
   enable_cluster_creator_admin_permissions = true
 
   tags = var.tags
