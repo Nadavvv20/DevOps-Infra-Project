@@ -150,8 +150,9 @@ jobs:
 
       - name: Install External Secrets Operator (ESO)
         run: |
-          echo "Ensuring External Secrets CRDs are installed..."
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/deploy/crds/bundle.yaml --server-side || true
+          echo "Applying External Secrets CRDs..."
+          kubectl apply -f kubernetes/crds/external-secrets-crds.yaml --server-side --force-conflicts
+          kubectl wait --for=condition=Established crd/externalsecrets.external-secrets.io crd/clustersecretstores.external-secrets.io --timeout=60s
           if helm status external-secrets -n external-secrets >/dev/null 2>&1; then
             echo "external-secrets is already installed. Skipping reinstall."
           else
@@ -160,7 +161,7 @@ jobs:
             helm upgrade --install external-secrets external-secrets/external-secrets \
               --namespace external-secrets \
               --create-namespace \
-              --set installCRDs=true \
+              --set installCRDs=false \
               --wait --timeout 5m
           fi
 
@@ -194,8 +195,9 @@ jobs:
 
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
-          kubectl create namespace online-boutique --dry-run=client -o yaml | kubectl apply -f -
+          kubectl get ns online-boutique >/dev/null 2>&1 || kubectl create ns online-boutique
           if [ -d "kubernetes/external-secrets" ]; then
+            echo "Applying external secrets stores and manifests..."
             kubectl apply -f kubernetes/external-secrets/
           fi
 
