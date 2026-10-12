@@ -1,0 +1,11 @@
+apiVersion: v2
+name: online-boutique
+description: Online Boutique (Google microservices-demo) deployment chart for AWS EKS
+type: application
+version: 0.1.0
+appVersion: "0.10.1"
+
+dependencies:
+  - name: onlineboutique
+    version: "0.10.1"
+    repository: "oci://us-docker.pkg.dev/online-boutique-ci/charts"

@@ -1,0 +1,85 @@
+# =========================================================
+# Online Boutique — AWS EKS Values
+# Base values shared by all environments.
+# Environment-specific overrides live in values-dev.yaml / values-prod.yaml
+# =========================================================
+
+onlineboutique:
+  # -------------------------------------------------------
+  # Global image settings — point to your ECR registry
+  # -------------------------------------------------------
+  images:
+    repository: YOUR_AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/online-boutique
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # -------------------------------------------------------
+  # Redis — use managed ElastiCache instead of in-cluster Redis
+  # -------------------------------------------------------
+  cartservice:
+    externalRedis:
+      enabled: true
+      # Populated at runtime from ExternalSecret -> K8s Secret
+      host:
+        valueFrom:
+          secretKeyRef:
+            name: redis-credentials
+            key: REDIS_HOST
+      port: 6379
+
+  # -------------------------------------------------------
+  # Namespace-level labels for ServiceMonitor discovery
+  # -------------------------------------------------------
+  podLabels:
+    app.kubernetes.io/part-of: online-boutique
+    monitoring: "true"
+
+  # -------------------------------------------------------
+  # Default resource requests — override per environment
+  # -------------------------------------------------------
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+  # -------------------------------------------------------
+  # Pod Disruption Budgets — ensure rolling updates are safe
+  # -------------------------------------------------------
+  frontend:
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+  checkoutservice:
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+  # -------------------------------------------------------
+  # Load generator — disabled in prod, enabled in dev
+  # -------------------------------------------------------
+  loadgenerator:
+    enabled: false
+
+  # -------------------------------------------------------
+  # Node selector / tolerations — schedule on Karpenter nodes
+  # -------------------------------------------------------
+  nodeSelector:
+    role: app
+
+  tolerations: []
+
+  # -------------------------------------------------------
+  # Security context
+  # -------------------------------------------------------
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL

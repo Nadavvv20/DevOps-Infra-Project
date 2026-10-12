@@ -1,0 +1,77 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: online-boutique-slos
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: online-boutique.slos
+      interval: 30s
+      rules:
+        - alert: FrontendHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{job="frontend", status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{job="frontend"}[5m]))
+            ) > 0.01
+          for: 2m
+          labels:
+            severity: critical
+            slo: error-rate
+          annotations:
+            summary: "Frontend error rate exceeds SLO (>1% in 5m)"
+            description: "Current error rate: {{ $value | humanizePercentage }}"
+
+        - alert: FrontendHighLatencyP99
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{job="frontend"}[5m])) by (le)
+            ) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            slo: latency
+          annotations:
+            summary: "Frontend p99 latency exceeds 500ms"
+            description: "p99 latency: {{ $value | humanizeDuration }}"
+
+        - alert: CheckoutServiceDown
+          expr: up{job="checkoutservice"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Checkout service is down"
+
+        - alert: CartServiceRedisErrors
+          expr: |
+            rate(grpc_server_handled_total{job="cartservice", grpc_code!="OK"}[5m]) > 0.05
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cart service gRPC error rate elevated"
+
+        - alert: KarpenterNodeProvisioningFailed
+          expr: |
+            sum(karpenter_nodes_allocatable{}) by (arch) < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Karpenter failed to provision nodes"
+
+    - name: online-boutique.availability
+      rules:
+        - record: job:http_requests_total:rate5m
+          expr: sum(rate(http_requests_total{job="frontend"}[5m])) by (status)
+
+        - record: job:http_error_rate:rate5m
+          expr: |
+            sum(rate(http_requests_total{job="frontend", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="frontend"}[5m]))

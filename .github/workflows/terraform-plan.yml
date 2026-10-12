@@ -1,0 +1,121 @@
+name: Terraform Plan & Lint
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.9.5"
+
+jobs:
+  lint:
+    name: Terraform Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Run tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.53.0
+
+      - run: tflint --init
+        working-directory: terraform
+
+      - run: tflint --recursive
+        working-directory: terraform
+
+      - name: Validate Terraform formatting
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+  plan-dev:
+    name: Plan (dev)
+    needs: lint
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - run: terraform init -input=false
+
+      - run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+        continue-on-error: true
+
+      - name: Convert plan to JSON
+        run: terraform show -json tfplan.binary > tfplan.json
+
+      - name: Run Checkov on plan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          file: terraform/environments/dev/tfplan.json
+          framework: terraform_plan
+          soft_fail: true
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const plan = require('fs').readFileSync('terraform/environments/dev/tfplan.json', 'utf8');
+            const body = `## Terraform Plan (dev)\n\`\`\`\n${plan.slice(0, 60000)}\n\`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  plan-prod:
+    name: Plan (prod)
+    needs: lint
+    runs-on: ubuntu-latest
+    environment: prod
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN_PROD }}
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - run: terraform init -input=false
+      - run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -no-color
