@@ -1,0 +1,193 @@
+﻿name: Up - Infrastructure & Application Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target AWS Environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      aws_region:
+        description: "AWS Region"
+        required: true
+        default: "us-east-1"
+      skip_vpc:
+        description: "Target existing VPC (skip re-applying VPC module if already exists)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.9.5"
+  HELM_VERSION: "v3.15.4"
+
+jobs:
+  infra-up:
+    name: Provision Infrastructure (Terraform)
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    outputs:
+      cluster_name: ${{ steps.tf_outputs.outputs.cluster_name }}
+    defaults:
+      run:
+        working-directory: terraform/environments/${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.aws_region }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply (Infra & Data Tier)
+        run: |
+          if [ "${{ github.event.inputs.skip_vpc }}" == "true" ]; then
+            echo "Targeting existing VPC: applying EKS, Karpenter, DBs, and IAM..."
+            terraform apply -auto-approve \
+              -target=module.eks \
+              -target=module.karpenter \
+              -target=module.rds_aurora \
+              -target=module.elasticache \
+              -target=module.ecr \
+              -target=module.iam_roles
+          else
+            echo "Applying full infrastructure..."
+            terraform apply -auto-approve \
+              -target=module.vpc \
+              -target=module.eks \
+              -target=module.karpenter \
+              -target=module.rds_aurora \
+              -target=module.elasticache \
+              -target=module.ecr \
+              -target=module.iam_roles
+          fi
+
+      - name: Export Outputs
+        id: tf_outputs
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "online-boutique-${{ github.event.inputs.environment }}")
+          echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
+
+  apps-up:
+    name: Deploy Core Controllers & Online Boutique (Helm)
+    needs: infra-up
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.aws_region }}
+
+      - name: Setup Kubectl & Helm
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.0'
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Update Kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ needs.infra-up.outputs.cluster_name }} \
+            --region ${{ github.event.inputs.aws_region }}
+
+      - name: Wait for EKS Control Plane & Nodes
+        run: |
+          echo "Waiting for Kubernetes API..."
+          until kubectl get nodes >/dev/null 2>&1; do
+            echo "Waiting for node communication..."
+            sleep 10
+          done
+          echo "Kubernetes nodes status:"
+          kubectl get nodes -o wide
+
+      - name: Install Ingress-NGINX / AWS Load Balancer Controller
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --create-namespace \
+            --set controller.service.type=LoadBalancer \
+            --wait --timeout 5m
+
+      - name: Install External Secrets Operator (ESO)
+        run: |
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=true \
+            --wait --timeout 5m
+
+      - name: Install Prometheus & Grafana (kube-prometheus-stack)
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --create-namespace \
+            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+            --wait --timeout 7m
+
+      - name: Install ArgoCD
+        run: |
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+          helm upgrade --install argocd argo/argo-cd \
+            --namespace argocd \
+            --create-namespace \
+            --set server.service.type=ClusterIP \
+            --wait --timeout 5m
+
+      - name: Apply ExternalSecrets Stores and Secret Manifests
+        run: |
+          if [ -d "kubernetes/external-secrets" ]; then
+            kubectl apply -f kubernetes/external-secrets/ || true
+          fi
+
+      - name: Deploy Google Online Boutique Application via Helm
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          echo "Deploying Online Boutique for environment: ${ENV}"
+          helm dependency update helm/online-boutique || true
+          helm upgrade --install online-boutique helm/online-boutique \
+            --namespace online-boutique \
+            --create-namespace \
+            --values helm/online-boutique/values.yaml \
+            --values helm/online-boutique/values-${ENV}.yaml \
+            --wait --timeout 10m
+
+      - name: Verify Workloads Rollout
+        run: |
+          kubectl get pods -n online-boutique -o wide
+          kubectl get ingress -A || true
+          echo "Online Boutique deployed successfully!"

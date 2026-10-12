@@ -1,0 +1,144 @@
+﻿name: Down - Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target AWS Environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      aws_region:
+        description: "AWS Region"
+        required: true
+        default: "us-east-1"
+      keep_vpc:
+        description: "Preserve VPC & Networking (Only destroy EKS cluster, DBs, and workloads to save time)"
+        type: boolean
+        default: true
+      confirm_destroy:
+        description: "Type 'DESTROY' to confirm teardown"
+        required: true
+        default: "ABORT"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.9.5"
+  HELM_VERSION: "v3.15.4"
+
+jobs:
+  validate-guardrails:
+    name: Guardrails & Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY" ]; then
+            echo "ERROR: Destruction aborted. You must type DESTROY in the confirm_destroy field."
+            exit 1
+          fi
+          echo "Destruction confirmed for environment: ${{ github.event.inputs.environment }}"
+
+  clean-k8s:
+    name: Clean Ingresses, LBs & Helm Releases
+    needs: validate-guardrails
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.aws_region }}
+
+      - name: Setup Kubectl & Helm
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.0'
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Update Kubeconfig (if cluster exists)
+        id: kubeconfig
+        run: |
+          CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          if aws eks describe-cluster --name "$CLUSTER_NAME" --region ${{ github.event.inputs.aws_region }} >/dev/null 2>&1; then
+            aws eks update-kubeconfig --name "$CLUSTER_NAME" --region ${{ github.event.inputs.aws_region }}
+            echo "cluster_found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Cluster $CLUSTER_NAME not found or already deleted."
+            echo "cluster_found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Delete Kubernetes LoadBalancers & Ingresses (Prevent AWS VPC ENI leaks)
+        if: steps.kubeconfig.outputs.cluster_found == 'true'
+        run: |
+          echo "Removing Application Ingress and LoadBalancers to release AWS ALBs / NLBs..."
+          kubectl delete ingress --all --all-namespaces --timeout=3m || true
+          kubectl delete svc -l "app.kubernetes.io/name=ingress-nginx" -n ingress-nginx --timeout=3m || true
+          
+          echo "Uninstalling Helm releases..."
+          helm uninstall online-boutique -n online-boutique || true
+          helm uninstall argocd -n argocd || true
+          helm uninstall prometheus -n monitoring || true
+          helm uninstall external-secrets -n external-secrets || true
+          helm uninstall ingress-nginx -n ingress-nginx || true
+
+          echo "Waiting 30 seconds for AWS cloud providers to de-provision ENIs..."
+          sleep 30
+
+  destroy-infra:
+    name: Destroy Infrastructure (Terraform)
+    needs: clean-k8s
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    defaults:
+      run:
+        working-directory: terraform/environments/${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.aws_region }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Targeted Destroy
+        run: |
+          if [ "${{ github.event.inputs.keep_vpc }}" == "true" ]; then
+            echo "Targeted destroy: Deleting EKS, Karpenter, DBs, and IAM while PRESERVING VPC..."
+            terraform destroy -auto-approve \
+              -target=module.eks \
+              -target=module.karpenter \
+              -target=module.rds_aurora \
+              -target=module.elasticache \
+              -target=module.iam_roles
+            echo "EKS and Databases destroyed. VPC and ECR retained."
+          else
+            echo "Full destroy: Deleting ALL infrastructure including VPC and subnets..."
+            terraform destroy -auto-approve
+          fi
