@@ -62,8 +62,6 @@ resource "aws_rds_cluster" "this" {
 
   storage_encrypted               = true
   deletion_protection             = var.deletion_protection
-  backup_retention_period         = var.backup_retention_period
-  preferred_backup_window         = "02:00-03:00"
   preferred_maintenance_window    = "sun:04:00-sun:05:00"
   skip_final_snapshot             = var.skip_final_snapshot
   final_snapshot_identifier       = "${var.cluster_name}-aurora-final"
