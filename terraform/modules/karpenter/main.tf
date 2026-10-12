@@ -41,8 +41,6 @@ module "karpenter_irsa" {
   karpenter_controller_cluster_name       = var.cluster_name
   karpenter_controller_node_iam_role_arns = [aws_iam_role.karpenter_node.arn]
 
-  attach_vpc_lattice_controller_policy = false
-
   oidc_providers = {
     main = {
       provider_arn               = var.oidc_provider_arn
