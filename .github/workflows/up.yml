@@ -112,7 +112,7 @@ jobs:
       - name: Setup Kubectl & Helm
         uses: azure/setup-kubectl@v4
         with:
-          version: 'v1.30.0'
+          version: 'v1.31.0'
 
       - uses: azure/setup-helm@v4
         with:
@@ -210,6 +210,13 @@ jobs:
             --values helm/online-boutique/values-${ENV}.yaml \
             --wait --timeout 10m
 
+      - name: Apply Frontend Ingress
+        run: |
+          if [ -d "kubernetes/ingress" ]; then
+            echo "Applying frontend ingress routing..."
+            kubectl apply -f kubernetes/ingress/
+          fi
+
       - name: Register Online Boutique with ArgoCD (GitOps Handover)
         run: |
           echo "Applying ArgoCD AppProject and Application manifests..."
@@ -219,7 +226,16 @@ jobs:
 
       - name: Verify Workloads Rollout
         run: |
+          echo "Pods in online-boutique namespace:"
           kubectl get pods -n online-boutique -o wide
-          kubectl get ingress -A || true
+          echo ""
+          echo "Ingress resources in online-boutique namespace:"
+          kubectl get ingress -n online-boutique -o wide || true
+          echo ""
+          echo "=========================================================="
+          echo "Public Ingress-NGINX Load Balancer Address:"
+          kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true
+          echo ""
+          echo "=========================================================="
           echo "Online Boutique deployed successfully!"
 
