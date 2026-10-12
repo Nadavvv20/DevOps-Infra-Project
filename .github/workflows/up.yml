@@ -15,6 +15,10 @@ on:
         description: "AWS Region"
         required: true
         default: "il-central-1"
+      skip_infra:
+        description: "Skip Terraform infrastructure provisioning (run apps/manifests only)"
+        type: boolean
+        default: false
       skip_vpc:
         description: "Target existing VPC (skip re-applying VPC module if already exists)"
         type: boolean
@@ -31,6 +35,7 @@ env:
 jobs:
   infra-up:
     name: Provision Infrastructure (Terraform)
+    if: ${{ !inputs.skip_infra }}
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
     permissions:
@@ -96,6 +101,7 @@ jobs:
   apps-up:
     name: Deploy Core Controllers & Online Boutique (Helm)
     needs: infra-up
+    if: ${{ always() && (needs.infra-up.result == 'success' || needs.infra-up.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
 
@@ -120,8 +126,13 @@ jobs:
 
       - name: Update Kubeconfig
         run: |
+          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
+          if [ -z "$CLUSTER_NAME" ]; then
+            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          fi
+          echo "Updating kubeconfig for cluster: ${CLUSTER_NAME}"
           aws eks update-kubeconfig \
-            --name ${{ needs.infra-up.outputs.cluster_name }} \
+            --name "$CLUSTER_NAME" \
             --region ${{ github.event.inputs.aws_region }}
 
       - name: Wait for EKS Control Plane & Nodes
