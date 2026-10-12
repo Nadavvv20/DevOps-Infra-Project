@@ -184,6 +184,13 @@ jobs:
             --values helm/online-boutique/values-${ENV}.yaml \
             --wait --timeout 10m
 
+      - name: Register Online Boutique with ArgoCD (GitOps Handover)
+        run: |
+          echo "Applying ArgoCD AppProject and Application manifests..."
+          kubectl apply -f kubernetes/argocd/app-project.yaml || true
+          kubectl apply -f kubernetes/argocd/application.yaml || true
+          echo "ArgoCD is now tracking https://github.com/Nadavvv20/online-boutique-gitops!"
+
       - name: Verify Workloads Rollout
         run: |
           kubectl get pods -n online-boutique -o wide
