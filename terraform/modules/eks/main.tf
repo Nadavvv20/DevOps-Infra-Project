@@ -41,6 +41,7 @@ module "eks" {
   eks_managed_node_groups = {
     system = {
       name           = "system"
+      ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = ["m5.large"]
       min_size       = 2
       max_size       = 4
