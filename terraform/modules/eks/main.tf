@@ -50,11 +50,7 @@ module "eks" {
         role = "system"
       }
 
-      taints = [{
-        key    = "CriticalAddonsOnly"
-        value  = "true"
-        effect = "NO_SCHEDULE"
-      }]
+      taints = []
 
       block_device_mappings = {
         xvda = {

@@ -6,14 +6,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.12"
-    }
-    kubectl = {
-      source  = "gavinbunney/kubectl"
-      version = "~> 1.14"
-    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
@@ -34,31 +26,6 @@ provider "aws" {
 
   default_tags {
     tags = local.common_tags
-  }
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    }
-  }
-}
-
-provider "kubectl" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  load_config_file       = false
-
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
   }
 }
 
@@ -147,23 +114,5 @@ module "iam_roles" {
     module.elasticache.secret_arn,
   ]
   tags = local.common_tags
-}
-
-module "helm_releases" {
-  source = "../../modules/helm-releases"
-
-  cluster_name              = local.cluster_name
-  cluster_endpoint          = module.eks.cluster_endpoint
-  cluster_ca_data           = module.eks.cluster_certificate_authority_data
-  karpenter_irsa_arn        = module.karpenter.irsa_arn
-  karpenter_node_role_arn   = module.karpenter.node_role_arn
-  interruption_queue_name   = module.karpenter.interruption_queue_name
-  alb_controller_role_arn   = module.iam_roles.alb_controller_role_arn
-  external_secrets_role_arn = module.iam_roles.external_secrets_role_arn
-  cloudwatch_agent_role_arn = module.iam_roles.cloudwatch_agent_role_arn
-  aurora_secret_arn         = module.rds_aurora.secret_arn
-  redis_secret_arn          = module.elasticache.secret_arn
-  aws_region                = var.aws_region
-  tags                      = local.common_tags
 }
 
