@@ -2,24 +2,8 @@
 # Dev environment overrides
 # =========================================================
 
-onlineboutique:
-  loadgenerator:
-    enabled: true
+loadGenerator:
+  create: true
 
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "32Mi"
-    limits:
-      cpu: "100m"
-      memory: "64Mi"
-
-  frontend:
-    podDisruptionBudget:
-      enabled: false
-
-  checkoutservice:
-    podDisruptionBudget:
-      enabled: false
-
-  replicaCount: 1
+frontend:
+  externalService: false
