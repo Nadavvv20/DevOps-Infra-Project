@@ -136,43 +136,59 @@ jobs:
 
       - name: Install Ingress-NGINX / AWS Load Balancer Controller
         run: |
-          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-          helm repo update
-          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-            --namespace ingress-nginx \
-            --create-namespace \
-            --set controller.service.type=LoadBalancer \
-            --wait --timeout 5m
+          if helm status ingress-nginx -n ingress-nginx >/dev/null 2>&1; then
+            echo "ingress-nginx is already installed. Skipping reinstall."
+          else
+            helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+            helm repo update
+            helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+              --namespace ingress-nginx \
+              --create-namespace \
+              --set controller.service.type=LoadBalancer \
+              --wait --timeout 5m
+          fi
 
       - name: Install External Secrets Operator (ESO)
         run: |
-          helm repo add external-secrets https://charts.external-secrets.io
-          helm repo update
-          helm upgrade --install external-secrets external-secrets/external-secrets \
-            --namespace external-secrets \
-            --create-namespace \
-            --set installCRDs=true \
-            --wait --timeout 5m
+          if helm status external-secrets -n external-secrets >/dev/null 2>&1; then
+            echo "external-secrets is already installed. Skipping reinstall."
+          else
+            helm repo add external-secrets https://charts.external-secrets.io
+            helm repo update
+            helm upgrade --install external-secrets external-secrets/external-secrets \
+              --namespace external-secrets \
+              --create-namespace \
+              --set installCRDs=true \
+              --wait --timeout 5m
+          fi
 
       - name: Install Prometheus & Grafana (kube-prometheus-stack)
         run: |
-          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-          helm repo update
-          helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-            --namespace monitoring \
-            --create-namespace \
-            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
-            --wait --timeout 7m
+          if helm status prometheus -n monitoring >/dev/null 2>&1; then
+            echo "prometheus stack is already installed. Skipping reinstall."
+          else
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo update
+            helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+              --namespace monitoring \
+              --create-namespace \
+              --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+              --wait --timeout 7m
+          fi
 
       - name: Install ArgoCD
         run: |
-          helm repo add argo https://argoproj.github.io/argo-helm
-          helm repo update
-          helm upgrade --install argocd argo/argo-cd \
-            --namespace argocd \
-            --create-namespace \
-            --set server.service.type=ClusterIP \
-            --wait --timeout 5m
+          if helm status argocd -n argocd >/dev/null 2>&1; then
+            echo "argocd is already installed. Skipping reinstall."
+          else
+            helm repo add argo https://argoproj.github.io/argo-helm
+            helm repo update
+            helm upgrade --install argocd argo/argo-cd \
+              --namespace argocd \
+              --create-namespace \
+              --set server.service.type=ClusterIP \
+              --wait --timeout 5m
+          fi
 
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
@@ -184,7 +200,6 @@ jobs:
         run: |
           ENV="${{ github.event.inputs.environment }}"
           echo "Deploying Online Boutique for environment: ${ENV}"
-          helm dependency update helm/online-boutique || true
           helm upgrade --install online-boutique helm/online-boutique \
             --namespace online-boutique \
             --create-namespace \
