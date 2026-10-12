@@ -33,6 +33,9 @@ jobs:
     name: Provision Infrastructure (Terraform)
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
     outputs:
       cluster_name: ${{ steps.tf_outputs.outputs.cluster_name }}
     defaults:
@@ -43,11 +46,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Debug OIDC Token Claims
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
+          echo "=== Decoded GitHub OIDC Claims ==="
+          echo "$TOKEN" | jq -R 'split(".") | .[1] | @base64d | fromjson'
+
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ github.event.inputs.aws_region }}
+          audience: sts.amazonaws.com
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
