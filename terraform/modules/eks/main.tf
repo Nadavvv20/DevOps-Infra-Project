@@ -42,10 +42,13 @@ module "eks" {
     system = {
       name           = "system"
       ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["m5.large"]
+      capacity_type  = "SPOT"
+      instance_types = ["t3.medium", "m5.large"]
       min_size       = 2
       max_size       = 4
       desired_size   = 2
+
+      enable_bootstrap_user_data = true
 
       labels = {
         role = "system"
