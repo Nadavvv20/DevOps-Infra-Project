@@ -12,8 +12,7 @@ spec:
   project: online-boutique
 
   source:
-    # Replace with your GitOps repository once created
-    repoURL: https://github.com/YOUR_ORG/online-boutique-gitops
+    repoURL: https://github.com/Nadavvv20/online-boutique-gitops
     targetRevision: main
     path: helm/online-boutique
 

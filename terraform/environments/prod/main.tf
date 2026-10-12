@@ -21,7 +21,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "YOUR_TERRAFORM_STATE_BUCKET"
+    bucket         = "mycompany-online-boutique-tfstate"
     key            = "prod/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-lock"
@@ -86,12 +86,12 @@ module "vpc" {
 module "eks" {
   source = "../../modules/eks"
 
-  cluster_name        = local.cluster_name
-  cluster_version     = var.cluster_version
-  vpc_id              = module.vpc.vpc_id
-  private_subnet_ids  = module.vpc.private_subnet_ids
-  intra_subnet_ids    = module.vpc.intra_subnet_ids
-  tags                = local.common_tags
+  cluster_name       = local.cluster_name
+  cluster_version    = var.cluster_version
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  intra_subnet_ids   = module.vpc.intra_subnet_ids
+  tags               = local.common_tags
 }
 
 module "karpenter" {
@@ -150,17 +150,17 @@ module "iam_roles" {
 module "helm_releases" {
   source = "../../modules/helm-releases"
 
-  cluster_name                 = local.cluster_name
-  cluster_endpoint             = module.eks.cluster_endpoint
-  cluster_ca_data              = module.eks.cluster_certificate_authority_data
-  karpenter_irsa_arn           = module.karpenter.irsa_arn
-  karpenter_node_role_arn      = module.karpenter.node_role_arn
-  interruption_queue_name      = module.karpenter.interruption_queue_name
-  alb_controller_role_arn      = module.iam_roles.alb_controller_role_arn
-  external_secrets_role_arn    = module.iam_roles.external_secrets_role_arn
-  cloudwatch_agent_role_arn    = module.iam_roles.cloudwatch_agent_role_arn
-  aurora_secret_arn            = module.rds_aurora.secret_arn
-  redis_secret_arn             = module.elasticache.secret_arn
-  aws_region                   = var.aws_region
-  tags                         = local.common_tags
+  cluster_name              = local.cluster_name
+  cluster_endpoint          = module.eks.cluster_endpoint
+  cluster_ca_data           = module.eks.cluster_certificate_authority_data
+  karpenter_irsa_arn        = module.karpenter.irsa_arn
+  karpenter_node_role_arn   = module.karpenter.node_role_arn
+  interruption_queue_name   = module.karpenter.interruption_queue_name
+  alb_controller_role_arn   = module.iam_roles.alb_controller_role_arn
+  external_secrets_role_arn = module.iam_roles.external_secrets_role_arn
+  cloudwatch_agent_role_arn = module.iam_roles.cloudwatch_agent_role_arn
+  aurora_secret_arn         = module.rds_aurora.secret_arn
+  redis_secret_arn          = module.elasticache.secret_arn
+  aws_region                = var.aws_region
+  tags                      = local.common_tags
 }

@@ -9,7 +9,7 @@ onlineboutique:
   # Global image settings — point to your ECR registry
   # -------------------------------------------------------
   images:
-    repository: YOUR_AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/online-boutique
+    repository: 965085140318.dkr.ecr.us-east-1.amazonaws.com/online-boutique
     tag: latest
     pullPolicy: IfNotPresent
 
