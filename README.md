@@ -1,4 +1,4 @@
-# DevOps Infra Project — Online Boutique on AWS EKS
+﻿# DevOps Infra Project — Online Boutique on AWS EKS
 
 Production-grade reference architecture for deploying **Google's Online Boutique** (microservices-demo) on **AWS EKS** using Terraform, Karpenter, ArgoCD, and GitHub Actions.
 
@@ -112,7 +112,7 @@ Production-grade reference architecture for deploying **Google's Online Boutique
 # Create S3 bucket and DynamoDB table for state (one-time)
 aws s3api create-bucket \
   --bucket my-terraform-state-online-boutique \
-  --region us-east-1
+  --region il-central-1
 
 aws s3api put-bucket-versioning \
   --bucket my-terraform-state-online-boutique \
@@ -123,7 +123,7 @@ aws dynamodb create-table \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
+  --region il-central-1
 ```
 
 Update the `bucket` name in `terraform/environments/dev/main.tf` and `prod/main.tf`.
@@ -142,7 +142,7 @@ terraform apply -var-file=terraform.tfvars
 ```bash
 aws eks update-kubeconfig \
   --name online-boutique-dev \
-  --region us-east-1
+  --region il-central-1
 ```
 
 ### 4. Apply Kubernetes Manifests
@@ -220,3 +220,4 @@ Push to main
 | [ADR-003](docs/ADR-003-kubernetes-workload-design.md) | Deployment vs StatefulSet vs DaemonSet for every service |
 | [ADR-004](docs/ADR-004-security-secrets.md) | IRSA deep-dive, ESO secret flow, envelope encryption, threat model |
 | [ADR-005](docs/ADR-005-observability-slos.md) | SLO definitions, error budgets, PromQL examples, Prometheus vs CloudWatch |
+

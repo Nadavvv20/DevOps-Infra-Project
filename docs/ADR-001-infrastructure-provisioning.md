@@ -1,4 +1,4 @@
-# ADR-001 — Infrastructure & Provisioning Strategy
+﻿# ADR-001 — Infrastructure & Provisioning Strategy
 
 ## Status
 Accepted
@@ -61,7 +61,7 @@ Each environment directory has:
 backend "s3" {
   bucket         = "my-terraform-state-prod"
   key            = "prod/terraform.tfstate"
-  region         = "us-east-1"
+  region         = "il-central-1"
   dynamodb_table = "terraform-state-lock"
   encrypt        = true
 }
@@ -136,3 +136,4 @@ Standard VPC CNI allocates one `/32` IP per pod from the node's ENIs. A `m5.larg
 | Skip final snapshot | true | false |
 | Load generator | enabled | disabled |
 | Replica counts | 1 | 2–3 |
+

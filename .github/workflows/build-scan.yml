@@ -1,4 +1,4 @@
-name: Build & Scan Container Images
+﻿name: Build & Scan Container Images
 
 on:
   push:
@@ -22,8 +22,8 @@ permissions:
   security-events: write
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  AWS_REGION: il-central-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.il-central-1.amazonaws.com
   IMAGE_TAG: ${{ github.inputs.image_tag || github.sha }}
 
 jobs:
@@ -142,3 +142,4 @@ jobs:
           git add -A
           git diff --staged --quiet || git commit -m "ci: update image tags to ${{ env.IMAGE_TAG }} [skip ci]"
           git push
+

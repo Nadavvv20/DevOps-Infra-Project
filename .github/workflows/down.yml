@@ -14,7 +14,7 @@ on:
       aws_region:
         description: "AWS Region"
         required: true
-        default: "us-east-1"
+        default: "il-central-1"
       keep_vpc:
         description: "Preserve VPC & Networking (Only destroy EKS cluster, DBs, and workloads to save time)"
         type: boolean
@@ -142,3 +142,4 @@ jobs:
             echo "Full destroy: Deleting ALL infrastructure including VPC and subnets..."
             terraform destroy -auto-approve
           fi
+

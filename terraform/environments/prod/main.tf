@@ -1,4 +1,4 @@
-terraform {
+﻿terraform {
   required_version = ">= 1.6"
 
   required_providers {
@@ -23,7 +23,7 @@ terraform {
   backend "s3" {
     bucket         = "mycompany-online-boutique-tfstate"
     key            = "prod/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "il-central-1"
     dynamodb_table = "terraform-state-lock"
     encrypt        = true
   }
@@ -164,3 +164,4 @@ module "helm_releases" {
   aws_region                = var.aws_region
   tags                      = local.common_tags
 }
+

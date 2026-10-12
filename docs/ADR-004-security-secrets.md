@@ -1,4 +1,4 @@
-# ADR-004 — Security & Secret Lifecycle
+﻿# ADR-004 — Security & Secret Lifecycle
 
 ## Status
 Accepted
@@ -79,7 +79,7 @@ Secrets (database passwords, Redis AUTH tokens, API keys) must never be stored i
 IRSA (IAM Roles for Service Accounts) is the mechanism that allows a Kubernetes pod to assume an AWS IAM role **without storing any static AWS access keys**.
 
 **Mechanism:**
-1. EKS creates an OIDC provider endpoint per cluster: `https://oidc.eks.us-east-1.amazonaws.com/id/CLUSTER_ID`
+1. EKS creates an OIDC provider endpoint per cluster: `https://oidc.eks.il-central-1.amazonaws.com/id/CLUSTER_ID`
 2. Every pod with a properly annotated ServiceAccount gets a **projected volume** — an OIDC-signed JWT token at `/var/run/secrets/eks.amazonaws.com/serviceaccount/token`
 3. The AWS SDK in the pod (or the ESO binary) calls `sts:AssumeRoleWithWebIdentity` with this JWT
 4. AWS STS validates the JWT against the OIDC public key, checks the IAM Trust Policy `Condition` (must match namespace + service account name), and returns short-lived credentials (1 hour TTL)
@@ -166,3 +166,4 @@ This means: even if someone gets raw etcd access (e.g., via a misconfigured back
 | ArgoCD admin password | Auto-rotated via ArgoCD `argocd-initial-admin-secret` | Post-initial-setup |
 
 **CloudTrail Audit:** Every `secretsmanager:GetSecretValue` call is logged with caller identity (the IRSA role ARN), source IP, and timestamp — providing a full access audit trail without additional tooling.
+

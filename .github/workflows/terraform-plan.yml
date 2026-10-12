@@ -1,4 +1,4 @@
-name: Terraform Plan & Lint
+﻿name: Terraform Plan & Lint
 
 on:
   pull_request:
@@ -54,7 +54,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: il-central-1
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -108,7 +108,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN_PROD }}
-          aws-region: us-east-1
+          aws-region: il-central-1
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -119,3 +119,4 @@ jobs:
 
       - name: Terraform Plan
         run: terraform plan -input=false -no-color
+

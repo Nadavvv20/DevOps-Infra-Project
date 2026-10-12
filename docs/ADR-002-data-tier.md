@@ -1,4 +1,4 @@
-# ADR-002 — Data Tier Architecture Decision Record
+﻿# ADR-002 — Data Tier Architecture Decision Record
 
 ## Status
 Accepted
@@ -40,7 +40,7 @@ A single PostgreSQL instance with a standby replica in another AZ using synchron
 - Failover takes 60-120s (DNS propagation delay)
 - No serverless autoscaling option
 
-**Cost estimate (db.r6g.large, Multi-AZ, us-east-1):** ~$340/month
+**Cost estimate (db.r6g.large, Multi-AZ, il-central-1):** ~$340/month
 
 ### Option B: Aurora PostgreSQL (Chosen)
 
@@ -58,7 +58,7 @@ Aurora decouples storage from compute. The storage layer is a distributed, SSD-b
 - Aurora storage has a minimum cost even when empty (~$0.10/GB-month)
 - Aurora versions lag behind upstream PostgreSQL releases by ~6 months
 
-**Cost estimate (db.r7g.large writer + db.t4g.medium reader, us-east-1):** ~$380/month
+**Cost estimate (db.r7g.large writer + db.t4g.medium reader, il-central-1):** ~$380/month
 
 ### Decision: Aurora PostgreSQL ✅
 
@@ -135,7 +135,7 @@ For production, the operational simplicity and Multi-AZ resilience are non-negot
 │                                                         │
 │  ┌──────────────┐    gRPC    ┌──────────────────────┐   │
 │  │ checkoutservice │───────▶│  Aurora PostgreSQL    │   │
-│  │ (Go)         │           │  Writer (us-east-1a)  │   │
+│  │ (Go)         │           │  Writer (il-central-1a)  │   │
 │  └──────────────┘           └──────────────────────┘   │
 │                                        │ sync replicate  │
 │  ┌──────────────┐    gRPC              ▼                 │
@@ -157,3 +157,4 @@ For production, the operational simplicity and Multi-AZ resilience are non-negot
 | Aurora Serverless v2 for prod | ACU cold-start latency spikes under sudden traffic; better for dev or very spiky workloads |
 | MongoDB Atlas | Third-party vendor; adds egress cost, VPC peering complexity, additional secret management surface |
 | Memcached | No persistence, no TLS AUTH, no replication — unsuitable for session data |
+

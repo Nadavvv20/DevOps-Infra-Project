@@ -1,4 +1,4 @@
-name: Deploy via ArgoCD
+﻿name: Deploy via ArgoCD
 
 on:
   workflow_run:
@@ -37,13 +37,13 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: il-central-1
 
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
             --name online-boutique-${{ github.event.inputs.environment || 'dev' }} \
-            --region us-east-1
+            --region il-central-1
 
       - name: Install ArgoCD CLI
         run: |
@@ -99,3 +99,4 @@ jobs:
           text: ":x: Deployment failed for online-boutique in ${{ github.event.inputs.environment || 'dev' }}"
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+

@@ -1,6 +1,6 @@
-variable "aws_region" {
+﻿variable "aws_region" {
   type    = string
-  default = "us-east-1"
+  default = "il-central-1"
 }
 
 variable "project_name" {
@@ -17,3 +17,4 @@ variable "cluster_version" {
   type    = string
   default = "1.30"
 }
+

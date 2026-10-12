@@ -1,4 +1,4 @@
-# =========================================================
+﻿# =========================================================
 # Online Boutique — AWS EKS Values
 # Base values shared by all environments.
 # Environment-specific overrides live in values-dev.yaml / values-prod.yaml
@@ -9,7 +9,7 @@ onlineboutique:
   # Global image settings — point to your ECR registry
   # -------------------------------------------------------
   images:
-    repository: 965085140318.dkr.ecr.us-east-1.amazonaws.com/online-boutique
+    repository: 965085140318.dkr.ecr.il-central-1.amazonaws.com/online-boutique
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -83,3 +83,4 @@ onlineboutique:
     capabilities:
       drop:
         - ALL
+
