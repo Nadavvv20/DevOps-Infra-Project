@@ -210,10 +210,10 @@ jobs:
             --values helm/online-boutique/values-${ENV}.yaml \
             --wait --timeout 10m
 
-      - name: Apply Frontend Ingress
+      - name: Apply Ingress Routes (Frontend, Grafana, ArgoCD)
         run: |
           if [ -d "kubernetes/ingress" ]; then
-            echo "Applying frontend ingress routing..."
+            echo "Applying ingress routes for Online Boutique, Grafana, and ArgoCD..."
             kubectl apply -f kubernetes/ingress/
           fi
 
