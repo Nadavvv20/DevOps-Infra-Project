@@ -1,4 +1,4 @@
-﻿# =========================================================
+# =========================================================
 # Online Boutique — AWS EKS Values
 # Base values shared by all environments.
 # Environment-specific overrides live in values-dev.yaml / values-prod.yaml
@@ -6,12 +6,19 @@
 
 onlineboutique:
   # -------------------------------------------------------
-  # Global image settings — point to your ECR registry
+  # Global image settings
   # -------------------------------------------------------
+  # OPTION A (Default): Official public Google demo images (ready out of the box)
   images:
-    repository: 965085140318.dkr.ecr.il-central-1.amazonaws.com/online-boutique
-    tag: latest
+    repository: gcr.io/google-samples/microservices-demo
+    tag: v0.10.1
     pullPolicy: IfNotPresent
+
+  # OPTION B: Private AWS ECR repository (switch to this after pushing mirrored images)
+  # images:
+  #   repository: 965085140318.dkr.ecr.il-central-1.amazonaws.com/online-boutique
+  #   tag: latest
+  #   pullPolicy: IfNotPresent
 
   # -------------------------------------------------------
   # Redis — use managed ElastiCache instead of in-cluster Redis

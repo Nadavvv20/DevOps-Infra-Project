@@ -1,4 +1,4 @@
-﻿terraform {
+terraform {
   required_version = ">= 1.6"
 
   required_providers {
@@ -129,6 +129,7 @@ module "elasticache" {
 }
 
 module "ecr" {
+  count  = var.enable_ecr ? 1 : 0
   source = "../../modules/ecr"
 
   project_name = var.project_name
