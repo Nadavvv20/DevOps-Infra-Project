@@ -150,7 +150,11 @@ jobs:
 
       - name: Install External Secrets Operator (ESO)
         run: |
-          echo "Applying External Secrets CRDs..."
+          echo "Checking and applying External Secrets CRDs..."
+          if kubectl get crd externalsecrets.external-secrets.io -o jsonpath='{.status.storedVersions}' 2>/dev/null | grep -q 'v1"'; then
+            echo "Removing incompatible v1 CRD definitions from earlier test..."
+            kubectl delete crd clusterexternalsecrets.external-secrets.io clustersecretstores.external-secrets.io externalsecrets.external-secrets.io secretstores.external-secrets.io --ignore-not-found
+          fi
           kubectl apply -f kubernetes/crds/external-secrets-crds.yaml --server-side --force-conflicts
           kubectl wait --for=condition=Established crd/externalsecrets.external-secrets.io crd/clustersecretstores.external-secrets.io --timeout=60s
           if helm status external-secrets -n external-secrets >/dev/null 2>&1; then
