@@ -145,6 +145,48 @@ jobs:
           echo "Kubernetes nodes status:"
           kubectl get nodes -o wide
 
+      - name: Install Karpenter Autoscaler (CRDs, Controller, NodePool)
+        run: |
+          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
+          if [ -z "$CLUSTER_NAME" ]; then
+            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          fi
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          KARPENTER_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/karpenter-controller-${CLUSTER_NAME}"
+
+          echo "Authenticating Helm with Public ECR (with anonymous fallback)..."
+          aws ecr-public get-login-password --region us-east-1 2>/dev/null | helm registry login --username AWS --password-stdin public.ecr.aws 2>/dev/null || true
+
+          if helm status karpenter -n kube-system >/dev/null 2>&1; then
+            echo "Karpenter is already installed."
+          else
+            echo "Installing Karpenter CRDs..."
+            helm upgrade --install karpenter-crd oci://public.ecr.aws/karpenter/karpenter-crd \
+              --version "1.0.6" \
+              --namespace kube-system \
+              --create-namespace
+
+            echo "Installing Karpenter Controller..."
+            helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+              --version "1.0.6" \
+              --namespace kube-system \
+              --create-namespace \
+              --set "settings.clusterName=${CLUSTER_NAME}" \
+              --set "settings.interruptionQueue=${CLUSTER_NAME}-karpenter-interruption" \
+              --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=${KARPENTER_ROLE_ARN}" \
+              --set controller.resources.requests.cpu="200m" \
+              --set controller.resources.requests.memory="256Mi" \
+              --set controller.resources.limits.cpu="1" \
+              --set controller.resources.limits.memory="1Gi" \
+              --wait --timeout 5m
+          fi
+
+          echo "Applying Karpenter Default EC2NodeClass and NodePool..."
+          sed -e "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" \
+              -e "s/{{ENVIRONMENT}}/${{ github.event.inputs.environment }}/g" \
+              kubernetes/karpenter/nodeclass.yaml | kubectl apply -f -
+          kubectl apply -f kubernetes/karpenter/nodepool.yaml
+
       - name: Install Ingress-NGINX / AWS Load Balancer Controller
         run: |
           if helm status ingress-nginx -n ingress-nginx >/dev/null 2>&1; then
@@ -161,6 +203,13 @@ jobs:
 
       - name: Install External Secrets Operator (ESO)
         run: |
+          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
+          if [ -z "$CLUSTER_NAME" ]; then
+            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          fi
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ESO_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-external-secrets"
+
           echo "Checking and applying External Secrets CRDs..."
           if kubectl get crd externalsecrets.external-secrets.io -o jsonpath='{.status.storedVersions}' 2>/dev/null | grep -q 'v1"'; then
             echo "Removing incompatible v1 CRD definitions from earlier test..."
@@ -169,7 +218,7 @@ jobs:
           kubectl apply -f kubernetes/crds/external-secrets-crds.yaml --server-side --force-conflicts
           kubectl wait --for=condition=Established crd/externalsecrets.external-secrets.io crd/clustersecretstores.external-secrets.io --timeout=60s
           if helm status external-secrets -n external-secrets >/dev/null 2>&1; then
-            echo "external-secrets is already installed. Skipping reinstall."
+            echo "external-secrets is already installed."
           else
             helm repo add external-secrets https://charts.external-secrets.io
             helm repo update
@@ -177,8 +226,12 @@ jobs:
               --namespace external-secrets \
               --create-namespace \
               --set installCRDs=false \
+              --set serviceAccount.name=external-secrets-sa \
+              --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=${ESO_ROLE_ARN}" \
               --wait --timeout 5m
           fi
+          kubectl annotate serviceaccount external-secrets-sa -n external-secrets \
+            eks.amazonaws.com/role-arn="${ESO_ROLE_ARN}" --overwrite 2>/dev/null || true
 
       - name: Install Prometheus & Grafana (kube-prometheus-stack)
         run: |
@@ -219,12 +272,62 @@ jobs:
           kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.basehref":"/argocd","server.rootpath":"/argocd"}}' 2>/dev/null || true
           kubectl rollout restart deployment/argocd-server -n argocd 2>/dev/null || true
 
+      - name: Install Argo Rollouts Controller & Dashboard
+        run: |
+          if helm status argo-rollouts -n argo-rollouts >/dev/null 2>&1; then
+            echo "argo-rollouts is already installed."
+          else
+            helm repo add argo https://argoproj.github.io/argo-helm
+            helm repo update
+            helm upgrade --install argo-rollouts argo/argo-rollouts \
+              --namespace argo-rollouts \
+              --create-namespace \
+              --set dashboard.enabled=true \
+              --wait --timeout 5m
+          fi
+
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
+          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
+          if [ -z "$CLUSTER_NAME" ]; then
+            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          fi
           kubectl get ns online-boutique >/dev/null 2>&1 || kubectl create ns online-boutique
           if [ -d "kubernetes/external-secrets" ]; then
-            echo "Applying external secrets stores and manifests..."
-            kubectl apply -f kubernetes/external-secrets/
+            echo "Applying ClusterSecretStore and external secrets..."
+            kubectl apply -f kubernetes/external-secrets/cluster-secret-store.yaml || true
+            sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/aurora-external-secret.yaml | kubectl apply -f -
+            sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/redis-external-secret.yaml | kubectl apply -f -
+          fi
+
+      - name: Initialize and Verify Database Schema
+        run: |
+          echo "Waiting for ExternalSecret to generate aurora-credentials..."
+          for i in $(seq 1 30); do
+            if kubectl get secret aurora-credentials -n online-boutique >/dev/null 2>&1; then
+              echo "aurora-credentials secret is ready!"
+              break
+            fi
+            echo "Waiting for secret... ($i/30)"
+            sleep 5
+          done
+
+          if kubectl get secret aurora-credentials -n online-boutique >/dev/null 2>&1; then
+            echo "Running Database Schema Migration and Verification Job..."
+            kubectl delete job db-schema-migration-verifier -n online-boutique --ignore-not-found
+            kubectl apply -f kubernetes/database/init-schema-job.yaml
+            
+            echo "Waiting for DB migration job to complete..."
+            if kubectl wait --for=condition=complete job/db-schema-migration-verifier -n online-boutique --timeout=180s; then
+              echo "Database migration job completed successfully!"
+              echo "=== Database Migration & Verification Logs ==="
+              kubectl logs -n online-boutique job/db-schema-migration-verifier
+            else
+              echo "Warning: Database migration job timed out or failed. Checking logs..."
+              kubectl logs -n online-boutique job/db-schema-migration-verifier || true
+            fi
+          else
+            echo "Warning: aurora-credentials secret not yet available. Skipping DB migration job."
           fi
 
       - name: Deploy Google Online Boutique Application via Helm
@@ -243,6 +346,13 @@ jobs:
           if [ -d "kubernetes/ingress" ]; then
             echo "Applying ingress routes for Online Boutique, Grafana, and ArgoCD..."
             kubectl apply -f kubernetes/ingress/
+          fi
+
+      - name: Apply Argo Rollouts AnalysisTemplates
+        run: |
+          if [ -f "kubernetes/rollouts/analysis-templates.yaml" ]; then
+            echo "Applying Argo Rollouts AnalysisTemplates..."
+            kubectl apply -f kubernetes/rollouts/analysis-templates.yaml
           fi
 
       - name: Register Online Boutique with ArgoCD (GitOps Handover)

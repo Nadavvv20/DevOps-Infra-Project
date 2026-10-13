@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: frontend-error-rate
+  namespace: online-boutique
+spec:
+  metrics:
+    - name: http-error-rate
+      interval: 30s
+      count: 3
+      failureLimit: 1
+      successCondition: len(result) == 0 || result[0] <= 0.02
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            (
+              sum(rate(nginx_ingress_controller_requests{exported_service="frontend",status=~"5.*"}[2m]))
+              /
+              (sum(rate(nginx_ingress_controller_requests{exported_service="frontend"}[2m])) > 0)
+            ) or on() vector(0)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: frontend-latency
+  namespace: online-boutique
+spec:
+  metrics:
+    - name: p95-latency-seconds
+      interval: 30s
+      count: 3
+      failureLimit: 1
+      successCondition: len(result) == 0 || result[0] <= 0.500
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(
+              0.95,
+              sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_service="frontend"}[2m])) by (le)
+            ) or on() vector(0.05)

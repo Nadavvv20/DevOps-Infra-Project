@@ -1,4 +1,4 @@
-﻿name: Build & Scan Container Images
+name: Build & Scan Container Images
 
 on:
   push:
@@ -98,7 +98,7 @@ jobs:
           provenance: false
 
       - name: Run Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.ECR_REGISTRY }}/online-boutique/${{ matrix.service }}:${{ env.IMAGE_TAG }}
           format: sarif

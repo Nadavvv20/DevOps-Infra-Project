@@ -16,3 +16,5 @@ access_entries = {
   }
 }
 
+enable_ecr = true
+
