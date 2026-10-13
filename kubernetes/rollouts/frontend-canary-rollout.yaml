@@ -35,22 +35,28 @@ spec:
         nginx:
           stableIngress: online-boutique-ingress
       steps:
-        # Step 1: Send 20% of traffic to the new image
+        # Step 1: 100% Stable / 0% Canary (Warm up new canary pods, verify baseline)
+        - setWeight: 0
+        - pause: { duration: 30s }
+
+        # Step 2: 80% Stable / 20% Canary (Initial traffic split)
         - setWeight: 20
         - pause: { duration: 1m }
-        # Step 2: Automated Prometheus analysis for errors and slowliness
         - analysis:
             templates:
               - templateName: frontend-error-rate
               - templateName: frontend-latency
-        # Step 3: Increase canary traffic to 50%
-        - setWeight: 50
+
+        # Step 3: 40% Stable / 60% Canary (Majority traffic shift)
+        - setWeight: 60
         - pause: { duration: 2m }
-        # Step 4: Run second analysis check
         - analysis:
             templates:
               - templateName: frontend-error-rate
-        # Step 5: Automatically promote to 100% stable if healthy
+              - templateName: frontend-latency
+
+        # Step 4: 0% Stable / 100% Canary (Full promotion to new image)
+        - setWeight: 100
   template:
     metadata:
       labels:

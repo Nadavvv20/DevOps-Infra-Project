@@ -57,12 +57,13 @@ kubectl argo rollouts set image frontend server=965085140318.dkr.ecr.il-central-
 ```
 
 ### 4. Progression Flow:
-1. **Weight 20%:** 20% of live traffic routes to canary pods via NGINX Ingress annotations. Pauses for 1 minute.
-2. **Prometheus Telemetry Trace:** Argo Rollouts queries Prometheus:
+1. **Step 1 (100% Stable / 0% Canary):** The new canary replica set is launched with 0% live traffic for 30s to warm up and verify pod readiness.
+2. **Step 2 (80% Stable / 20% Canary):** 20% of traffic routes to the canary via NGINX Ingress. Pauses 1 minute while Prometheus queries:
    - `frontend-error-rate`: Verifies HTTP 5xx errors remain $\le 2\%$.
    - `frontend-latency`: Verifies P95 response time remains $\le 500\text{ ms}$.
-3. **Weight 50%:** If analysis succeeds, traffic steps to 50% for 2 minutes.
-4. **Promotion:** Once all analysis runs pass, the new revision becomes 100% stable, and old replica sets are scaled down.
+3. **Step 3 (40% Stable / 60% Canary):** Increases canary traffic to 60% for 2 minutes and runs the Prometheus telemetry analysis suite again.
+4. **Step 4 (0% Stable / 100% Canary):** Fully promotes the new image to 100% stable traffic and gracefully terminates old replica pods.
+
 
 ---
 
