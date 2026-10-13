@@ -300,48 +300,11 @@ jobs:
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/redis-external-secret.yaml | kubectl apply -f -
           fi
 
-      - name: Initialize and Verify Database Schema
-        run: |
-          echo "Waiting for ExternalSecret to generate aurora-credentials..."
-          for i in $(seq 1 30); do
-            if kubectl get secret aurora-credentials -n online-boutique >/dev/null 2>&1; then
-              echo "aurora-credentials secret is ready!"
-              break
-            fi
-            echo "Waiting for secret... ($i/30)"
-            sleep 5
-          done
-
-          if kubectl get secret aurora-credentials -n online-boutique >/dev/null 2>&1; then
-            echo "Running Database Schema Migration and Verification Job..."
-            kubectl delete job db-schema-migration-verifier -n online-boutique --ignore-not-found
-            kubectl apply -f kubernetes/database/init-schema-job.yaml
-            
-            echo "Waiting for DB migration job to complete..."
-            if kubectl wait --for=condition=complete job/db-schema-migration-verifier -n online-boutique --timeout=180s; then
-              echo "Database migration job completed successfully!"
-              echo "=== Database Migration & Verification Logs ==="
-              kubectl logs -n online-boutique job/db-schema-migration-verifier
-            else
-              echo "Warning: Database migration job timed out or failed. Checking logs..."
-              kubectl logs -n online-boutique job/db-schema-migration-verifier || true
-            fi
-          else
-            echo "Warning: aurora-credentials secret not yet available. Skipping DB migration job."
-          fi
-
       - name: Apply Ingress Routes (Frontend, Grafana, ArgoCD)
         run: |
           if [ -d "kubernetes/ingress" ]; then
             echo "Applying ingress routes for Online Boutique, Grafana, and ArgoCD..."
             kubectl apply -f kubernetes/ingress/
-          fi
-
-      - name: Apply Argo Rollouts AnalysisTemplates
-        run: |
-          if [ -f "kubernetes/rollouts/analysis-templates.yaml" ]; then
-            echo "Applying Argo Rollouts AnalysisTemplates..."
-            kubectl apply -f kubernetes/rollouts/analysis-templates.yaml
           fi
 
       - name: Register Online Boutique with ArgoCD (GitOps Handover)
