@@ -27,6 +27,48 @@ metadata:
   {{- end }}
 ---
 {{- end }}
+{{- if and .Values.frontend.rollout .Values.frontend.rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ .Values.frontend.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.frontend.name }}
+spec:
+  replicas: {{ .Values.frontend.rollout.replicas | default 2 }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: {{ .Values.frontend.name }}
+  strategy:
+    canary:
+      canaryService: {{ .Values.frontend.name }}-canary
+      stableService: {{ .Values.frontend.name }}
+      trafficRouting:
+        nginx:
+          stableIngress: online-boutique-ingress
+      steps:
+        # Step 1: 100% Stable / 0% Canary (Warm up new canary pods, verify baseline)
+        - setWeight: 0
+        - pause: { duration: 30s }
+        # Step 2: 80% Stable / 20% Canary (Initial traffic split)
+        - setWeight: 20
+        - pause: { duration: 1m }
+        - analysis:
+            templates:
+              - templateName: frontend-error-rate
+              - templateName: frontend-latency
+        # Step 3: 40% Stable / 60% Canary (Majority traffic shift)
+        - setWeight: 60
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: frontend-error-rate
+              - templateName: frontend-latency
+        # Step 4: 0% Stable / 100% Canary (Full promotion to new image)
+        - setWeight: 100
+{{- else }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,6 +80,7 @@ spec:
   selector:
     matchLabels:
       app: {{ .Values.frontend.name }}
+{{- end }}
   template:
     metadata:
       labels:
@@ -70,7 +113,7 @@ spec:
                 - ALL
             privileged: false
             readOnlyRootFilesystem: true
-          image: {{ .Values.images.repository }}/{{ .Values.frontend.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
+          image: {{ dig "image" "repository" .Values.images.repository .Values.frontend }}/{{ .Values.frontend.name }}:{{ dig "image" "tag" (.Values.images.tag | default .Chart.AppVersion) .Values.frontend }}
           ports:
           - containerPort: 8080
           readinessProbe:
@@ -148,6 +191,24 @@ spec:
   - name: http
     port: 80
     targetPort: 8080
+{{- if and .Values.frontend.rollout .Values.frontend.rollout.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.frontend.name }}-canary
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.frontend.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.frontend.name }}
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+{{- end }}
 {{- if .Values.frontend.externalService }}
 ---
 apiVersion: v1
