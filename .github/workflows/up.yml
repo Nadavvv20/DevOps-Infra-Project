@@ -330,17 +330,6 @@ jobs:
             echo "Warning: aurora-credentials secret not yet available. Skipping DB migration job."
           fi
 
-      - name: Deploy Google Online Boutique Application via Helm
-        run: |
-          ENV="${{ github.event.inputs.environment }}"
-          echo "Deploying Online Boutique for environment: ${ENV}"
-          helm upgrade --install online-boutique helm/online-boutique \
-            --namespace online-boutique \
-            --create-namespace \
-            --values helm/online-boutique/values.yaml \
-            --values helm/online-boutique/values-${ENV}.yaml \
-            --wait --timeout 10m
-
       - name: Apply Ingress Routes (Frontend, Grafana, ArgoCD)
         run: |
           if [ -d "kubernetes/ingress" ]; then
@@ -357,10 +346,25 @@ jobs:
 
       - name: Register Online Boutique with ArgoCD (GitOps Handover)
         run: |
-          echo "Applying ArgoCD AppProject and Application manifests..."
+          ENV="${{ github.event.inputs.environment }}"
+          echo "Registering Online Boutique in ArgoCD for environment: ${ENV}..."
           kubectl apply -f kubernetes/argocd/app-project.yaml || true
-          kubectl apply -f kubernetes/argocd/application.yaml || true
+          sed "s/values-prod.yaml/values-${ENV}.yaml/g" kubernetes/argocd/application.yaml | kubectl apply -f -
           echo "ArgoCD is now tracking https://github.com/Nadavvv20/online-boutique-gitops!"
+
+      - name: Wait for ArgoCD Application Sync
+        run: |
+          echo "Waiting for ArgoCD to sync Online Boutique from GitOps repository..."
+          for i in $(seq 1 30); do
+            STATUS=$(kubectl get application online-boutique -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Pending")
+            HEALTH=$(kubectl get application online-boutique -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Pending")
+            echo "ArgoCD Sync Status: $STATUS, Health: $HEALTH ($i/30)"
+            if [ "$STATUS" == "Synced" ] && [ "$HEALTH" == "Healthy" ]; then
+              echo "Online Boutique is fully synced and healthy via ArgoCD!"
+              break
+            fi
+            sleep 10
+          done
 
       - name: Verify Workloads Rollout
         run: |

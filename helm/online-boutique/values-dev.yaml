@@ -1,9 +1,0 @@
-# =========================================================
-# Dev environment overrides
-# =========================================================
-
-loadGenerator:
-  create: true
-
-frontend:
-  externalService: false

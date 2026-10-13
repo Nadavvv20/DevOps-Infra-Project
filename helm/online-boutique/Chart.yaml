@@ -1,6 +1,0 @@
-apiVersion: v2
-name: online-boutique
-description: Online Boutique (Google microservices-demo) deployment chart for AWS EKS
-type: application
-version: 0.10.7
-appVersion: "v0.10.7"

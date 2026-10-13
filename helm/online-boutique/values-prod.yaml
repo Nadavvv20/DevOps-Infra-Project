@@ -1,9 +1,0 @@
-# =========================================================
-# Prod environment overrides
-# =========================================================
-
-loadGenerator:
-  create: false
-
-frontend:
-  externalService: false
