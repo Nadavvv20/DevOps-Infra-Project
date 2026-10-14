@@ -4,7 +4,7 @@ variable "cluster_name" {
 
 variable "cluster_version" {
   type    = string
-  default = "1.31"
+  default = "1.37"
 }
 
 variable "vpc_id" {

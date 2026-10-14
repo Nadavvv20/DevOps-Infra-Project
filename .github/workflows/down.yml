@@ -1,4 +1,4 @@
-﻿name: Down - Destroy Infrastructure
+name: Down - Destroy Infrastructure
 
 on:
   workflow_dispatch:
@@ -91,6 +91,7 @@ jobs:
           
           echo "Uninstalling Helm releases..."
           helm uninstall online-boutique -n online-boutique || true
+          helm uninstall keycloak -n keycloak || true
           helm uninstall argocd -n argocd || true
           helm uninstall prometheus -n monitoring || true
           helm uninstall external-secrets -n external-secrets || true
@@ -130,12 +131,14 @@ jobs:
       - name: Terraform Targeted Destroy
         run: |
           if [ "${{ github.event.inputs.keep_vpc }}" == "true" ]; then
-            echo "Targeted destroy: Deleting EKS, Karpenter, DBs, and IAM while PRESERVING VPC..."
+            echo "Targeted destroy: Deleting EKS, Karpenter, DBs, SQS, Keycloak secrets, and IAM while PRESERVING VPC..."
             terraform destroy -auto-approve \
               -target=module.eks \
               -target=module.karpenter \
               -target=module.rds_aurora \
               -target=module.elasticache \
+              -target=module.sqs \
+              -target=module.secrets_manager \
               -target=module.iam_roles
             echo "EKS and Databases destroyed. VPC and ECR retained."
           else

@@ -5,10 +5,8 @@ metadata:
   namespace: online-boutique
   annotations:
     kubernetes.io/ingress.class: nginx
-    # If using AWS Load Balancer Controller (ALB) instead of Ingress-NGINX:
-    # kubernetes.io/ingress.class: alb
-    # alb.ingress.kubernetes.io/scheme: internet-facing
-    # alb.ingress.kubernetes.io/target-type: ip
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
 spec:
   ingressClassName: nginx
   rules:

@@ -97,6 +97,26 @@ module "elasticache" {
   tags                       = local.common_tags
 }
 
+# ── SQS — Async Order Events ──────────────────────────────────────────────────
+# New: Powers the event-driven checkout → email/shipping pipeline.
+module "sqs" {
+  source = "../../modules/sqs"
+
+  cluster_name           = local.cluster_name
+  secret_recovery_window = 0 # dev: allow immediate re-creation
+  tags                   = local.common_tags
+}
+
+# ── Keycloak Admin Credentials ────────────────────────────────────────────────
+# New: Generates and stores a random Keycloak admin password in Secrets Manager.
+module "secrets_manager" {
+  source = "../../modules/secrets-manager"
+
+  cluster_name           = local.cluster_name
+  secret_recovery_window = 0
+  tags                   = local.common_tags
+}
+
 module "ecr" {
   count  = var.enable_ecr ? 1 : 0
   source = "../../modules/ecr"
@@ -105,15 +125,26 @@ module "ecr" {
   tags         = local.common_tags
 }
 
+# ── IAM Roles (IRSA) ──────────────────────────────────────────────────────────
+# Updated: now receives SQS ARNs so it can create scoped policies for
+# checkoutservice (producer) and emailservice/shippingservice (consumers).
 module "iam_roles" {
   source = "../../modules/iam-roles"
 
   cluster_name      = local.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
+  # Strip the "https://" prefix; IAM condition keys use the bare URL
+  oidc_issuer_url   = replace(module.eks.cluster_oidc_issuer_url, "https://", "")
+
   secrets_manager_arns = [
     module.rds_aurora.secret_arn,
     module.elasticache.secret_arn,
+    module.sqs.secret_arn,
+    module.secrets_manager.keycloak_secret_arn,
   ]
+
+  order_events_queue_arn = module.sqs.order_events_queue_arn
+  order_events_dlq_arn   = module.sqs.order_events_dlq_arn
+
   tags = local.common_tags
 }
-

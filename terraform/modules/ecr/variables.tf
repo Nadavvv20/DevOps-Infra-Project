@@ -17,6 +17,7 @@ variable "service_names" {
     "shippingservice",
     "adservice",
     "loadgenerator",
+    "inventoryservice",
   ]
 }
 

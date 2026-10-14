@@ -76,12 +76,14 @@ jobs:
       - name: Terraform Apply (Infra & Data Tier)
         run: |
           if [ "${{ github.event.inputs.skip_vpc }}" == "true" ]; then
-            echo "Targeting existing VPC: applying EKS, Karpenter, DBs, and IAM..."
+            echo "Targeting existing VPC: applying EKS, Karpenter, DBs, SQS, and IAM..."
             terraform apply -auto-approve \
               -target=module.eks \
               -target=module.karpenter \
               -target=module.rds_aurora \
               -target=module.elasticache \
+              -target=module.sqs \
+              -target=module.secrets_manager \
               -target=module.iam_roles
           else
             echo "Applying full infrastructure..."
@@ -293,17 +295,77 @@ jobs:
             CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
           fi
           kubectl get ns online-boutique >/dev/null 2>&1 || kubectl create ns online-boutique
+          # keycloak namespace must exist before applying its ExternalSecret
+          kubectl get ns keycloak >/dev/null 2>&1 || kubectl create ns keycloak
           if [ -d "kubernetes/external-secrets" ]; then
             echo "Applying ClusterSecretStore and external secrets..."
             kubectl apply -f kubernetes/external-secrets/cluster-secret-store.yaml || true
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/aurora-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/redis-external-secret.yaml | kubectl apply -f -
+            sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/sqs-external-secret.yaml | kubectl apply -f -
+            sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/keycloak-external-secret.yaml | kubectl apply -f -
           fi
 
-      - name: Apply Ingress Routes (Frontend, Grafana, ArgoCD)
+      - name: Install Keycloak (Identity Provider)
+        run: |
+          # Wait for ESO to sync the keycloak-credentials secret before Helm install
+          echo "Waiting for keycloak-credentials ExternalSecret to be Ready..."
+          kubectl wait --for=condition=Ready externalsecret/keycloak-credentials -n keycloak --timeout=90s || true
+          if helm status keycloak -n keycloak >/dev/null 2>&1; then
+            echo "Keycloak is already installed."
+          else
+            helm repo add bitnami https://charts.bitnami.com/bitnami
+            helm repo update
+            # Key configuration:
+            #  - postgresql.enabled=false: Use our external Aurora instance
+            #  - proxy=edge: Trust X-Forwarded-For headers from NGINX ingress
+            #  - httpRelativePath=/auth: Keycloak served at /auth path (no domain needed)
+            #  - existingSecret: All credentials from the synced ExternalSecret
+            helm upgrade --install keycloak bitnami/keycloak \
+              --namespace keycloak \
+              --create-namespace \
+              --set existingSecret="keycloak-credentials" \
+              --set existingSecretKey.adminPassword="KEYCLOAK_ADMIN_PASSWORD" \
+              --set existingSecretKey.adminUser="KEYCLOAK_ADMIN" \
+              --set postgresql.enabled=false \
+              --set externalDatabase.existingSecret="keycloak-credentials" \
+              --set httpRelativePath="/auth" \
+              --set production=false \
+              --set proxy=edge \
+              --wait --timeout 8m
+          fi
+
+      - name: Annotate ServiceAccounts with SQS IRSA Role ARNs
+        run: |
+          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
+          if [ -z "$CLUSTER_NAME" ]; then
+            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          fi
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+          CHECKOUT_ROLE="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-checkoutservice-sqs"
+          EMAIL_ROLE="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-emailservice-sqs"
+          SHIPPING_ROLE="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-shippingservice-sqs"
+
+          echo "Ensuring ServiceAccounts exist in online-boutique namespace..."
+          kubectl create sa checkoutservice -n online-boutique --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create sa emailservice -n online-boutique --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create sa shippingservice -n online-boutique --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "Annotating ServiceAccounts with IRSA role ARNs..."
+          kubectl annotate sa checkoutservice -n online-boutique \
+            eks.amazonaws.com/role-arn="${CHECKOUT_ROLE}" --overwrite
+          kubectl annotate sa emailservice -n online-boutique \
+            eks.amazonaws.com/role-arn="${EMAIL_ROLE}" --overwrite
+          kubectl annotate sa shippingservice -n online-boutique \
+            eks.amazonaws.com/role-arn="${SHIPPING_ROLE}" --overwrite
+
+          echo "IRSA annotations applied — SQS producer/consumer pods inherit AWS credentials via OIDC federation."
+
+      - name: Apply Ingress Routes (Frontend, Grafana, ArgoCD, Keycloak)
         run: |
           if [ -d "kubernetes/ingress" ]; then
-            echo "Applying ingress routes for Online Boutique, Grafana, and ArgoCD..."
+            echo "Applying ingress routes for Online Boutique, Grafana, ArgoCD, and Keycloak..."
             kubectl apply -f kubernetes/ingress/
           fi
 
@@ -329,18 +391,24 @@ jobs:
             sleep 10
           done
 
-      - name: Verify Workloads Rollout
+      - name: Verify Workloads Rollout & Print Access URLs
         run: |
           echo "Pods in online-boutique namespace:"
           kubectl get pods -n online-boutique -o wide
+          echo ""
+          echo "Keycloak pods:"
+          kubectl get pods -n keycloak -o wide || true
           echo ""
           echo "Ingress resources in online-boutique namespace:"
           kubectl get ingress -n online-boutique -o wide || true
           echo ""
           echo "=========================================================="
           echo "Public Ingress-NGINX Load Balancer Address:"
-          kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true
-          echo ""
+          ALB=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
+          echo "  ALB Address:        http://${ALB}"
+          echo "  Online Boutique:    http://${ALB}/"
+          echo "  Keycloak Admin UI:  http://${ALB}/auth/admin"
+          echo "  ArgoCD UI:          http://${ALB}/argocd"
+          echo "  Grafana:            http://${ALB}/grafana"
           echo "=========================================================="
-          echo "Online Boutique deployed successfully!"
-
+          echo "Online Boutique with Auth & Event-Driven Architecture deployed successfully!"

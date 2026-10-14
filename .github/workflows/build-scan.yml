@@ -58,6 +58,8 @@ jobs:
               - 'src/shippingservice/**'
             adservice:
               - 'src/adservice/**'
+            inventoryservice:
+              - 'src/inventoryservice/**'
 
   build-and-scan:
     name: Build ${{ matrix.service }}
