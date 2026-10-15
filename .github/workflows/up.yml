@@ -23,6 +23,10 @@ on:
         description: "Target existing VPC (skip re-applying VPC module if already exists)"
         type: boolean
         default: false
+      run_smoke_tests:
+        description: "Run automated architecture smoke test suite after deployment"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -420,3 +424,24 @@ jobs:
           echo "  Grafana:            http://${ALB}/grafana"
           echo "=========================================================="
           echo "Online Boutique with Auth & Event-Driven Architecture deployed successfully!"
+
+      - name: Setup Go for Architecture Smoke Tests
+        if: ${{ github.event.inputs.run_smoke_tests != 'false' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run Architecture Validation Smoke Tests
+        if: ${{ github.event.inputs.run_smoke_tests != 'false' }}
+        run: |
+          ALB=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
+          echo "Starting smoke test suite against ALB: http://${ALB}"
+          export BASE_URL="http://${ALB}"
+          export AWS_REGION="${{ github.event.inputs.aws_region }}"
+          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
+          if [ -z "$CLUSTER_NAME" ]; then
+            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          fi
+          export CLUSTER_NAME
+          chmod +x scripts/run-smoke-tests.sh
+          ./scripts/run-smoke-tests.sh
