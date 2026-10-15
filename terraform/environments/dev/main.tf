@@ -134,7 +134,7 @@ module "iam_roles" {
   cluster_name      = local.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
   # Strip the "https://" prefix; IAM condition keys use the bare URL
-  oidc_issuer_url   = replace(module.eks.cluster_oidc_issuer_url, "https://", "")
+  oidc_issuer_url = replace(module.eks.cluster_oidc_issuer_url, "https://", "")
 
   secrets_manager_arns = [
     module.rds_aurora.secret_arn,
@@ -143,8 +143,11 @@ module "iam_roles" {
     module.secrets_manager.keycloak_secret_arn,
   ]
 
-  order_events_queue_arn = module.sqs.order_events_queue_arn
-  order_events_dlq_arn   = module.sqs.order_events_dlq_arn
+  order_events_topic_arn = module.sqs.order_events_topic_arn
+  email_queue_arn        = module.sqs.email_queue_arn
+  email_dlq_arn          = module.sqs.email_dlq_arn
+  shipping_queue_arn     = module.sqs.shipping_queue_arn
+  shipping_dlq_arn       = module.sqs.shipping_dlq_arn
 
   tags = local.common_tags
 }

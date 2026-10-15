@@ -18,9 +18,19 @@ output "ecr_repository_urls" {
   value       = var.enable_ecr ? module.ecr[0].repository_urls : {}
 }
 
-output "order_events_queue_url" {
-  description = "URL of the primary SQS order-events queue."
-  value       = module.sqs.order_events_queue_url
+output "order_events_topic_arn" {
+  description = "ARN of the primary order-events SNS topic."
+  value       = module.sqs.order_events_topic_arn
+}
+
+output "email_queue_url" {
+  description = "URL of the order-events-email SQS queue."
+  value       = module.sqs.email_queue_url
+}
+
+output "shipping_queue_url" {
+  description = "URL of the order-events-shipping SQS queue."
+  value       = module.sqs.shipping_queue_url
 }
 
 output "checkoutservice_role_arn" {

@@ -40,24 +40,24 @@ resource "aws_secretsmanager_secret" "redis_auth" {
 }
 
 resource "aws_secretsmanager_secret_version" "redis_auth" {
-  secret_id     = aws_secretsmanager_secret.redis_auth.id
+  secret_id = aws_secretsmanager_secret.redis_auth.id
   secret_string = jsonencode({
-    auth_token            = random_password.redis_auth.result
-    primary_endpoint      = aws_elasticache_replication_group.this.primary_endpoint_address
-    reader_endpoint       = aws_elasticache_replication_group.this.reader_endpoint_address
-    port                  = 6379
+    auth_token       = random_password.redis_auth.result
+    primary_endpoint = aws_elasticache_replication_group.this.primary_endpoint_address
+    reader_endpoint  = aws_elasticache_replication_group.this.reader_endpoint_address
+    port             = 6379
   })
 }
 
 resource "aws_elasticache_replication_group" "this" {
-  replication_group_id       = "${var.cluster_name}-redis"
-  description                = "Redis cache for Online Boutique cart service"
-  node_type                  = var.node_type
-  num_cache_clusters         = var.num_cache_clusters
-  engine_version             = var.engine_version
-  port                       = 6379
-  subnet_group_name          = aws_elasticache_subnet_group.this.name
-  security_group_ids         = [aws_security_group.redis.id]
+  replication_group_id = "${var.cluster_name}-redis"
+  description          = "Redis cache for Online Boutique cart service"
+  node_type            = var.node_type
+  num_cache_clusters   = var.num_cache_clusters
+  engine_version       = var.engine_version
+  port                 = 6379
+  subnet_group_name    = aws_elasticache_subnet_group.this.name
+  security_group_ids   = [aws_security_group.redis.id]
 
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true

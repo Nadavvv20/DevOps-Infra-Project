@@ -78,20 +78,20 @@ resource "aws_db_instance" "this" {
 resource "aws_rds_cluster" "this" {
   count = var.enable_aurora_cluster ? 1 : 0
 
-  cluster_identifier      = "${var.cluster_name}-aurora"
-  engine                  = "aurora-postgresql"
-  engine_version          = var.engine_version
-  database_name           = var.db_name
-  master_username         = var.db_master_username
-  master_password         = random_password.aurora.result
-  db_subnet_group_name    = aws_db_subnet_group.this.name
-  vpc_security_group_ids  = [aws_security_group.aurora.id]
+  cluster_identifier     = "${var.cluster_name}-aurora"
+  engine                 = "aurora-postgresql"
+  engine_version         = var.engine_version
+  database_name          = var.db_name
+  master_username        = var.db_master_username
+  master_password        = random_password.aurora.result
+  db_subnet_group_name   = aws_db_subnet_group.this.name
+  vpc_security_group_ids = [aws_security_group.aurora.id]
 
-  storage_encrypted               = true
-  deletion_protection             = var.deletion_protection
-  preferred_maintenance_window    = "sun:04:00-sun:05:00"
-  skip_final_snapshot             = var.skip_final_snapshot
-  final_snapshot_identifier       = "${var.cluster_name}-aurora-final"
+  storage_encrypted            = true
+  deletion_protection          = var.deletion_protection
+  preferred_maintenance_window = "sun:04:00-sun:05:00"
+  skip_final_snapshot          = var.skip_final_snapshot
+  final_snapshot_identifier    = "${var.cluster_name}-aurora-final"
 
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
@@ -107,9 +107,9 @@ resource "aws_rds_cluster_instance" "this" {
   engine             = aws_rds_cluster.this[0].engine
   engine_version     = aws_rds_cluster.this[0].engine_version
 
-  monitoring_interval             = 60
-  monitoring_role_arn             = aws_iam_role.rds_monitoring[0].arn
-  performance_insights_enabled    = true
+  monitoring_interval                   = 60
+  monitoring_role_arn                   = aws_iam_role.rds_monitoring[0].arn
+  performance_insights_enabled          = true
   performance_insights_retention_period = 7
 
   tags = var.tags

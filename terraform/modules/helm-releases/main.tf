@@ -10,9 +10,9 @@ resource "helm_release" "karpenter" {
   values = [
     yamlencode({
       settings = {
-        clusterName            = var.cluster_name
-        clusterEndpoint        = var.cluster_endpoint
-        interruptionQueue      = var.interruption_queue_name
+        clusterName       = var.cluster_name
+        clusterEndpoint   = var.cluster_endpoint
+        interruptionQueue = var.interruption_queue_name
       }
       serviceAccount = {
         annotations = {
@@ -22,7 +22,7 @@ resource "helm_release" "karpenter" {
       controller = {
         resources = {
           requests = { cpu = "200m", memory = "256Mi" }
-          limits   = { cpu = "1",    memory = "1Gi"   }
+          limits   = { cpu = "1", memory = "1Gi" }
         }
       }
       tolerations = [{
@@ -39,16 +39,16 @@ resource "kubectl_manifest" "karpenter_node_class" {
     kind       = "EC2NodeClass"
     metadata   = { name = "default" }
     spec = {
-      amiSelectorTerms    = [{ alias = "al2023@latest" }]
-      role                = split("/", var.karpenter_node_role_arn)[1]
-      subnetSelectorTerms = [{ tags = { "karpenter.sh/discovery" = var.cluster_name } }]
+      amiSelectorTerms           = [{ alias = "al2023@latest" }]
+      role                       = split("/", var.karpenter_node_role_arn)[1]
+      subnetSelectorTerms        = [{ tags = { "karpenter.sh/discovery" = var.cluster_name } }]
       securityGroupSelectorTerms = [{ tags = { "karpenter.sh/discovery" = var.cluster_name } }]
       blockDeviceMappings = [{
         deviceName = "/dev/xvda"
         ebs = {
-          volumeSize = "50Gi"
-          volumeType = "gp3"
-          encrypted  = true
+          volumeSize          = "50Gi"
+          volumeType          = "gp3"
+          encrypted           = true
           deleteOnTermination = true
         }
       }]
@@ -74,10 +74,10 @@ resource "kubectl_manifest" "karpenter_node_pool" {
             name  = "default"
           }
           requirements = [
-            { key = "karpenter.sh/capacity-type",       operator = "In", values = ["spot", "on-demand"] },
-            { key = "kubernetes.io/arch",               operator = "In", values = ["amd64"]             },
-            { key = "karpenter.k8s.aws/instance-category", operator = "In", values = ["c", "m", "r"]   },
-            { key = "karpenter.k8s.aws/instance-generation", operator = "Gt", values = ["2"]            },
+            { key = "karpenter.sh/capacity-type", operator = "In", values = ["spot", "on-demand"] },
+            { key = "kubernetes.io/arch", operator = "In", values = ["amd64"] },
+            { key = "karpenter.k8s.aws/instance-category", operator = "In", values = ["c", "m", "r"] },
+            { key = "karpenter.k8s.aws/instance-generation", operator = "Gt", values = ["2"] },
           ]
         }
       }
@@ -159,9 +159,9 @@ resource "helm_release" "argocd" {
           enabled          = true
           ingressClassName = "alb"
           annotations = {
-            "alb.ingress.kubernetes.io/scheme"       = "internet-facing"
-            "alb.ingress.kubernetes.io/target-type"  = "ip"
-            "alb.ingress.kubernetes.io/listen-ports" = "[{\"HTTPS\":443}]"
+            "alb.ingress.kubernetes.io/scheme"          = "internet-facing"
+            "alb.ingress.kubernetes.io/target-type"     = "ip"
+            "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTPS\":443}]"
             "alb.ingress.kubernetes.io/certificate-arn" = var.acm_certificate_arn
           }
           hosts = [var.argocd_hostname]
@@ -190,7 +190,7 @@ resource "helm_release" "kube_prometheus_stack" {
     yamlencode({
       prometheus = {
         prometheusSpec = {
-          retention      = "30d"
+          retention = "30d"
           storageSpec = {
             volumeClaimTemplate = {
               spec = {
@@ -204,8 +204,8 @@ resource "helm_release" "kube_prometheus_stack" {
         }
       }
       grafana = {
-        enabled          = true
-        adminPassword    = var.grafana_admin_password
+        enabled       = true
+        adminPassword = var.grafana_admin_password
         persistence = {
           enabled          = true
           storageClassName = "gp3"

@@ -17,15 +17,31 @@ variable "secrets_manager_arns" {
   description = "ARNs of Secrets Manager secrets External Secrets Operator is allowed to read."
 }
 
-variable "order_events_queue_arn" {
+variable "order_events_topic_arn" {
   type        = string
-  description = "ARN of the primary SQS order-events queue for IAM policies."
+  description = "ARN of the SNS order-events topic for checkoutservice publishing."
 }
 
-variable "order_events_dlq_arn" {
+variable "email_queue_arn" {
   type        = string
-  description = "ARN of the SQS dead-letter queue for IAM policies."
+  description = "ARN of the email SQS queue for emailservice IAM policy."
 }
+
+variable "email_dlq_arn" {
+  type        = string
+  description = "ARN of the email SQS dead-letter queue."
+}
+
+variable "shipping_queue_arn" {
+  type        = string
+  description = "ARN of the shipping SQS queue for shippingservice IAM policy."
+}
+
+variable "shipping_dlq_arn" {
+  type        = string
+  description = "ARN of the shipping SQS dead-letter queue."
+}
+
 
 variable "tags" {
   type    = map(string)

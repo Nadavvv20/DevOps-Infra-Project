@@ -61,9 +61,9 @@ module "cloudwatch_agent_irsa" {
   tags = var.tags
 }
 
-# ── SQS Producer — checkoutservice ───────────────────────────────────────────
-# checkoutservice publishes OrderPlaced events after a successful ACID commit.
-# It only needs sqs:SendMessage on the primary queue.
+# ── SNS Producer — checkoutservice ───────────────────────────────────────────
+# checkoutservice publishes OrderPlaced events to the SNS topic after ACID commit.
+# It only needs sns:Publish on the specific SNS topic.
 resource "aws_iam_role" "checkoutservice_sqs" {
   name = "${var.cluster_name}-checkoutservice-sqs"
 
@@ -86,22 +86,21 @@ resource "aws_iam_role" "checkoutservice_sqs" {
 }
 
 resource "aws_iam_role_policy" "checkoutservice_sqs" {
-  name = "sqs-send-message"
+  name = "sns-publish-order-events"
   role = aws_iam_role.checkoutservice_sqs.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
-      Resource = [var.order_events_queue_arn]
+      Action   = ["sns:Publish"]
+      Resource = [var.order_events_topic_arn]
     }]
   })
 }
 
 # ── SQS Consumer — emailservice ───────────────────────────────────────────────
-# emailservice polls the queue and sends order receipt emails.
-# Needs ReceiveMessage + DeleteMessage to complete the consumer loop.
+# emailservice polls the email queue and DLQ only. CANNOT access shipping queue.
 resource "aws_iam_role" "emailservice_sqs" {
   name = "${var.cluster_name}-emailservice-sqs"
 
@@ -124,7 +123,7 @@ resource "aws_iam_role" "emailservice_sqs" {
 }
 
 resource "aws_iam_role_policy" "emailservice_sqs" {
-  name = "sqs-consume-messages"
+  name = "sqs-consume-email-messages"
   role = aws_iam_role.emailservice_sqs.id
 
   policy = jsonencode({
@@ -137,13 +136,13 @@ resource "aws_iam_role_policy" "emailservice_sqs" {
         "sqs:GetQueueAttributes",
         "sqs:ChangeMessageVisibility"
       ]
-      Resource = [var.order_events_queue_arn, var.order_events_dlq_arn]
+      Resource = [var.email_queue_arn, var.email_dlq_arn]
     }]
   })
 }
 
 # ── SQS Consumer — shippingservice ───────────────────────────────────────────
-# shippingservice generates tracking numbers after consuming OrderPlaced events.
+# shippingservice polls the shipping queue and DLQ only. CANNOT access email queue.
 resource "aws_iam_role" "shippingservice_sqs" {
   name = "${var.cluster_name}-shippingservice-sqs"
 
@@ -166,7 +165,7 @@ resource "aws_iam_role" "shippingservice_sqs" {
 }
 
 resource "aws_iam_role_policy" "shippingservice_sqs" {
-  name = "sqs-consume-messages"
+  name = "sqs-consume-shipping-messages"
   role = aws_iam_role.shippingservice_sqs.id
 
   policy = jsonencode({
@@ -179,7 +178,8 @@ resource "aws_iam_role_policy" "shippingservice_sqs" {
         "sqs:GetQueueAttributes",
         "sqs:ChangeMessageVisibility"
       ]
-      Resource = [var.order_events_queue_arn, var.order_events_dlq_arn]
+      Resource = [var.shipping_queue_arn, var.shipping_dlq_arn]
     }]
   })
 }
+

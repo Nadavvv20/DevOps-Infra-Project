@@ -8,8 +8,8 @@ variable "vpc_cidr" {
 }
 
 variable "single_nat_gateway" {
-  type    = bool
-  default = false
+  type        = bool
+  default     = false
   description = "Use a single NAT Gateway. Set true for dev to reduce cost."
 }
 

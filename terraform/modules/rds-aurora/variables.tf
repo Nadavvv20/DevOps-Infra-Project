@@ -35,8 +35,8 @@ variable "instance_class" {
 }
 
 variable "instance_count" {
-  type    = number
-  default = 2
+  type        = number
+  default     = 2
   description = "Writer + Readers. Set 1 for dev."
 }
 

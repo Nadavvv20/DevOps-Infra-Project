@@ -20,8 +20,8 @@ variable "node_type" {
 }
 
 variable "num_cache_clusters" {
-  type    = number
-  default = 2
+  type        = number
+  default     = 2
   description = "Set 1 for dev, 2+ for prod (enables Multi-AZ)."
 }
 

@@ -97,6 +97,22 @@ module "elasticache" {
   tags                       = local.common_tags
 }
 
+module "sqs" {
+  source = "../../modules/sqs"
+
+  cluster_name           = local.cluster_name
+  secret_recovery_window = 30
+  tags                   = local.common_tags
+}
+
+module "secrets_manager" {
+  source = "../../modules/secrets-manager"
+
+  cluster_name           = local.cluster_name
+  secret_recovery_window = 30
+  tags                   = local.common_tags
+}
+
 module "ecr" {
   count  = var.enable_ecr ? 1 : 0
   source = "../../modules/ecr"
@@ -110,10 +126,20 @@ module "iam_roles" {
 
   cluster_name      = local.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_issuer_url   = replace(module.eks.cluster_oidc_issuer_url, "https://", "")
   secrets_manager_arns = [
     module.rds_aurora.secret_arn,
     module.elasticache.secret_arn,
+    module.sqs.secret_arn,
+    module.secrets_manager.keycloak_secret_arn,
   ]
+
+  order_events_topic_arn = module.sqs.order_events_topic_arn
+  email_queue_arn        = module.sqs.email_queue_arn
+  email_dlq_arn          = module.sqs.email_dlq_arn
+  shipping_queue_arn     = module.sqs.shipping_queue_arn
+  shipping_dlq_arn       = module.sqs.shipping_dlq_arn
+
   tags = local.common_tags
 }
 
