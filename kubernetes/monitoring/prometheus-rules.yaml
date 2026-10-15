@@ -65,6 +65,43 @@ spec:
           annotations:
             summary: "Karpenter failed to provision nodes"
 
+        - alert: SQSDeadLetterQueueNonZero
+          expr: |
+            sum(aws_sqs_approximate_number_of_messages_visible_maximum{queue_name=~".*-dlq"}) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Poison message detected in SQS DLQ"
+            description: "At least one message has landed in a dead letter queue after max retries."
+
+        - alert: SQSQueueDepthHigh
+          expr: |
+            sum(aws_sqs_approximate_number_of_messages_visible_maximum{queue_name=~"order-events-.*"}) by (queue_name) > 100
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High SQS order queue depth"
+            description: "Consumer lag detected on {{ $labels.queue_name }} (>100 messages visible)."
+
+        - alert: InventoryStockDriftDetected
+          expr: inventory_stock_drift > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Inventory stock drift detected between Redis and Aurora"
+            description: "Redis stock differs from expected ledger stock by {{ $value }} units."
+
+        - alert: InventoryHoldExpiredRateHigh
+          expr: rate(inventory_hold_expired_total[5m]) > 5
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Elevated rate of inventory holds expiring without purchase"
+
     - name: online-boutique.availability
       rules:
         - record: job:http_requests_total:rate5m
