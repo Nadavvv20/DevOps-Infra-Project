@@ -1,0 +1,39 @@
+﻿{
+  "realm": "online-boutique",
+  "enabled": true,
+  "sslRequired": "NONE",
+  "roles": {
+    "realm": [
+      {
+        "name": "customer",
+        "description": "Standard shopping customer role"
+      },
+      {
+        "name": "admin",
+        "description": "Store operations administrator role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "boutique-frontend",
+      "name": "Online Boutique Web Frontend",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "boutique-frontend-secret-key",
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://*",
+        "https://*"
+      ],
+      "webOrigins": [
+        "+"
+      ]
+    }
+  ]
+}

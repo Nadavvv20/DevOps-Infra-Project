@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice/pkg/outbox"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -27,8 +28,20 @@ func getRealPostgresDB(t *testing.T) *sql.DB {
 	return db
 }
 
+type testSNSPublisher struct {
+	mu        sync.Mutex
+	published []string
+}
+
+func (p *testSNSPublisher) Publish(ctx context.Context, topicARN, message string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.published = append(p.published, message)
+	return nil
+}
+
 // TestRealPostgresSkipLockedConcurrency tests real concurrent transactions against real PostgreSQL
-// to prove that FOR UPDATE SKIP LOCKED prevents lock contention and prevents double-processing.
+// using production outbox.FetchAndLockPendingEvents with FOR UPDATE SKIP LOCKED.
 func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 	db := getRealPostgresDB(t)
 	defer db.Close()
@@ -36,7 +49,7 @@ func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Clean outbox and insert 2 distinct pending events
-	_, err := db.ExecContext(ctx, "DELETE FROM outbox WHERE id LIKE 'concurrency-test-%'")
+	_, err := db.ExecContext(ctx, "DELETE FROM outbox WHERE published_at IS NULL")
 	if err != nil {
 		t.Fatalf("Failed to clean outbox: %v", err)
 	}
@@ -64,7 +77,7 @@ func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// ── WORKER / TRANSACTION 1 ──────────────────────────────────────────────────
+	// ?? WORKER / TRANSACTION 1 ??????????????????????????????????????????????????
 	go func() {
 		defer wg.Done()
 		tx1, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -74,41 +87,48 @@ func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 		}
 		defer tx1.Rollback()
 
-		// Select oldest pending row with FOR UPDATE SKIP LOCKED
-		row := tx1.QueryRowContext(ctx, `
-			SELECT id FROM outbox 
-			WHERE id IN ($1, $2) AND published_at IS NULL 
-			ORDER BY created_at ASC 
-			LIMIT 1 
-			FOR UPDATE SKIP LOCKED
-		`, eventID1, eventID2)
-
-		if err := row.Scan(&tx1SelectedID); err != nil {
-			tx1Err = fmt.Errorf("tx1 scan error: %w", err)
+		// Call production outbox package function with batchSize=1
+		events, err := outbox.FetchAndLockPendingEvents(ctx, tx1, 1)
+		if err != nil {
+			tx1Err = fmt.Errorf("tx1 query error: %w", err)
 			return
 		}
-		t.Logf("Tx 1 acquired row lock on: %s", tx1SelectedID)
+		if len(events) > 0 {
+			tx1SelectedID = events[0].ID
+		}
 
-		// Signal to Tx 2 that Tx 1 holds the lock on row 1
+		// Signal Tx 2 that Tx 1 holds the lock on its selected row
 		close(tx1Locked)
 
-		// Wait until Tx 2 has run concurrently and attempted selection
-		<-tx2Done
+		// Wait until Tx 2 has executed its query before Tx 1 commits
+		select {
+		case <-tx2Done:
+		case <-time.After(5 * time.Second):
+			tx1Err = fmt.Errorf("tx1 timed out waiting for tx2")
+			return
+		}
 
-		// Now mark as published and commit Tx 1
+		// Mark row as published
 		_, err = tx1.ExecContext(ctx, "UPDATE outbox SET published_at = NOW() WHERE id = $1", tx1SelectedID)
 		if err != nil {
 			tx1Err = fmt.Errorf("tx1 update error: %w", err)
 			return
 		}
-		_ = tx1.Commit()
+		if err := tx1.Commit(); err != nil {
+			tx1Err = fmt.Errorf("tx1 commit error: %w", err)
+		}
 	}()
 
-	// ── WORKER / TRANSACTION 2 (Runs concurrently while Tx 1 holds row 1 lock) ──
+	// ?? WORKER / TRANSACTION 2 ??????????????????????????????????????????????????
 	go func() {
 		defer wg.Done()
-		// Wait until Tx 1 has acquired its row lock
-		<-tx1Locked
+		// Wait until Tx 1 has already locked the oldest row
+		select {
+		case <-tx1Locked:
+		case <-time.After(5 * time.Second):
+			tx2Err = fmt.Errorf("tx2 timed out waiting for tx1 to lock")
+			return
+		}
 
 		tx2, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if err != nil {
@@ -118,35 +138,36 @@ func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 		}
 		defer tx2.Rollback()
 
-		// Tx 2 attempts to select a row with FOR UPDATE SKIP LOCKED.
-		// Since Tx 1 currently holds the lock on the first row, Postgres MUST skip it
-		// and immediately return the second row without blocking!
-		startTime := time.Now()
-		row := tx2.QueryRowContext(ctx, `
-			SELECT id FROM outbox 
-			WHERE id IN ($1, $2) AND published_at IS NULL 
-			ORDER BY created_at ASC 
-			LIMIT 1 
-			FOR UPDATE SKIP LOCKED
-		`, eventID1, eventID2)
-
-		if err := row.Scan(&tx2SelectedID); err != nil {
-			tx2Err = fmt.Errorf("tx2 scan error: %w", err)
+		start := time.Now()
+		// Call production outbox package function with batchSize=1
+		events, err := outbox.FetchAndLockPendingEvents(ctx, tx2, 1)
+		elapsed := time.Since(start)
+		if err != nil {
+			tx2Err = fmt.Errorf("tx2 query error: %w", err)
 			close(tx2Done)
 			return
 		}
-		duration := time.Since(startTime)
-		t.Logf("Tx 2 acquired row lock on: %s (in %v without waiting for Tx 1)", tx2SelectedID, duration)
+		if len(events) > 0 {
+			tx2SelectedID = events[0].ID
+		}
 
-		close(tx2Done)
+		// SKIP LOCKED must return IMMEDIATELY without waiting on Tx 1's lock
+		if elapsed > 100*time.Millisecond {
+			tx2Err = fmt.Errorf("tx2 took %v to execute, which indicates blocking rather than SKIP LOCKED", elapsed)
+		}
 
-		// Mark as published and commit Tx 2
+		// Mark row as published
 		_, err = tx2.ExecContext(ctx, "UPDATE outbox SET published_at = NOW() WHERE id = $1", tx2SelectedID)
 		if err != nil {
 			tx2Err = fmt.Errorf("tx2 update error: %w", err)
+			close(tx2Done)
 			return
 		}
-		_ = tx2.Commit()
+		if err := tx2.Commit(); err != nil {
+			tx2Err = fmt.Errorf("tx2 commit error: %w", err)
+		}
+
+		close(tx2Done)
 	}()
 
 	wg.Wait()
@@ -158,23 +179,17 @@ func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 		t.Fatalf("Tx 2 failed: %v", tx2Err)
 	}
 
-	// ── VERIFICATIONS ─────────────────────────────────────────────────────────
-	// 1. Tx 1 must have acquired eventID1 (oldest row)
+	// ?? VERIFICATIONS ?????????????????????????????????????????????????????????
 	if tx1SelectedID != eventID1 {
 		t.Errorf("Expected Tx 1 to lock %s, but got %s", eventID1, tx1SelectedID)
 	}
-
-	// 2. Tx 2 must have skipped eventID1 and acquired eventID2!
 	if tx2SelectedID != eventID2 {
 		t.Errorf("Expected Tx 2 to skip locked row and acquire %s, but got %s", eventID2, tx2SelectedID)
 	}
-
-	// 3. Neither transaction should process the same row
 	if tx1SelectedID == tx2SelectedID {
 		t.Fatalf("CONCURRENCY VIOLATION: Both Tx 1 and Tx 2 selected the same row: %s", tx1SelectedID)
 	}
 
-	// 4. Verify both rows are now marked published in real Postgres
 	var countUnpublished int
 	err = db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM outbox 
@@ -187,11 +202,11 @@ func TestRealPostgresSkipLockedConcurrency(t *testing.T) {
 		t.Errorf("Expected 0 unpublished rows remaining, found %d", countUnpublished)
 	}
 
-	t.Logf("SUCCESS: Verified real PostgreSQL FOR UPDATE SKIP LOCKED concurrency between 2 concurrent transactions.")
+	t.Logf("SUCCESS: Verified production outbox.FetchAndLockPendingEvents concurrency against real PostgreSQL.")
 }
 
-// TestOutboxPublisherRecoveryRealPostgres verifies crash recovery:
-// Rows left unpublished due to worker termination are swept and published upon recovery.
+// TestOutboxPublisherRecoveryRealPostgres verifies crash recovery using production outbox.PublishBatch
+// and outbox.RecoverStaleEvents against real PostgreSQL.
 func TestOutboxPublisherRecoveryRealPostgres(t *testing.T) {
 	db := getRealPostgresDB(t)
 	defer db.Close()
@@ -202,50 +217,29 @@ func TestOutboxPublisherRecoveryRealPostgres(t *testing.T) {
 	// Insert row with published_at IS NULL (simulating crash before publish)
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO outbox (id, event_type, payload, created_at, published_at) 
-		VALUES ($1, 'OrderPlaced', '{"order":"recover"}', NOW(), NULL)
+		VALUES ($1, 'OrderPlaced', '{"order":"recover"}', NOW() - INTERVAL '5 minutes', NULL)
 	`, testID)
 	if err != nil {
 		t.Fatalf("Failed to insert pending row: %v", err)
 	}
 
-	// Sweep with FOR UPDATE SKIP LOCKED
-	tx, err := db.BeginTx(ctx, nil)
+	// Verify outbox.RecoverStaleEvents finds this event
+	staleCount, err := outbox.RecoverStaleEvents(ctx, db, 1*time.Minute)
 	if err != nil {
-		t.Fatalf("Failed to begin sweep tx: %v", err)
+		t.Fatalf("RecoverStaleEvents failed: %v", err)
 	}
-	defer tx.Rollback()
+	if staleCount < 1 {
+		t.Errorf("Expected at least 1 stale event, got %d", staleCount)
+	}
 
-	rows, err := tx.QueryContext(ctx, `
-		SELECT id, payload FROM outbox 
-		WHERE id = $1 AND published_at IS NULL 
-		ORDER BY created_at ASC 
-		LIMIT 50 
-		FOR UPDATE SKIP LOCKED
-	`, testID)
+	// Execute production outbox.PublishBatch
+	pub := &testSNSPublisher{}
+	published, err := outbox.PublishBatch(ctx, db, pub, "arn:aws:sns:il-central-1:123456789012:test-order-events", 50)
 	if err != nil {
-		t.Fatalf("Sweep query failed: %v", err)
+		t.Fatalf("PublishBatch failed: %v", err)
 	}
-	defer rows.Close()
-
-	var idsToPublish []string
-	for rows.Next() {
-		var id, payload string
-		if err := rows.Scan(&id, &payload); err == nil {
-			idsToPublish = append(idsToPublish, id)
-		}
-	}
-	rows.Close()
-
-	for _, id := range idsToPublish {
-		_, err = tx.ExecContext(ctx, "UPDATE outbox SET published_at = NOW() WHERE id = $1", id)
-		if err != nil {
-			t.Fatalf("Failed to mark row published: %v", err)
-		}
-	}
-	_ = tx.Commit()
-
-	if len(idsToPublish) != 1 {
-		t.Errorf("Expected exactly 1 recovered event, got %d", len(idsToPublish))
+	if published < 1 {
+		t.Errorf("Expected at least 1 published event, got %d", published)
 	}
 
 	// Verify published_at is no longer NULL
@@ -255,5 +249,5 @@ func TestOutboxPublisherRecoveryRealPostgres(t *testing.T) {
 		t.Errorf("Row was not marked published: %v", err)
 	}
 
-	t.Log("SUCCESS: Verified outbox publisher recovery against real PostgreSQL.")
+	t.Log("SUCCESS: Verified production outbox.PublishBatch and RecoverStaleEvents against real PostgreSQL.")
 }

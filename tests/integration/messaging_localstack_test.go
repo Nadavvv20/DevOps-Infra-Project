@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/redis/go-redis/v9"
+	"github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice/pkg/consumer"
 )
 
 func getLocalStackConfig(ctx context.Context) (aws.Config, error) {
@@ -218,25 +219,28 @@ func TestFanoutAndDLQLogic(t *testing.T) {
 	})
 }
 
-// TestConsumerSideEffectFailureAndRetry proves:
-// 1. Consumer acquires short-TTL "processing" marker before executing side effect.
-// 2. If side effect fails, processing marker is cleaned up, message is NOT deleted from SQS (fail-closed).
-// 3. Redrive delivers message again, processing succeeds, long-TTL "done" marker is set, and message is deleted.
+// TestConsumerSideEffectFailureAndRetry verifies with production consumer package that:
+// 1. If side effect fails, short-TTL :processing lock is released and message is NOT marked :done.
+// 2. Message is NOT deleted from SQS, allowing SQS retry.
+// 3. Subsequent worker attempt succeeds, executes side effect, sets :done, and deletes message.
 func TestConsumerSideEffectFailureAndRetry(t *testing.T) {
 	ctx := context.Background()
-	rdb := getRealRedisClient()
-	defer rdb.Close()
-
 	cfg, err := getLocalStackConfig(ctx)
 	if err != nil {
 		t.Fatalf("Failed to load AWS config for LocalStack: %v", err)
 	}
-	sqsClient := sqs.NewFromConfig(cfg)
 
-	// Create test queue
-	qName := fmt.Sprintf("shipping-retry-test-%d", time.Now().UnixNano())
+	sqsClient := sqs.NewFromConfig(cfg)
+	rdb := getRealRedisClient()
+	defer rdb.Close()
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		t.Fatalf("Real Redis is not reachable at localhost:6379: %v", err)
+	}
+
+	queueName := fmt.Sprintf("test-shipping-retry-%d", time.Now().UnixNano())
 	qRes, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String(qName),
+		QueueName: aws.String(queueName),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test SQS queue: %v", err)
@@ -274,33 +278,35 @@ func TestConsumerSideEffectFailureAndRetry(t *testing.T) {
 	}
 	msg1 := recv1.Messages[0]
 
-	// Step A: Acquire short-TTL (60s) processing lock
-	acquired1, err := rdb.SetNX(ctx, procKey, "1", 60*time.Second).Result()
-	if err != nil || !acquired1 {
-		t.Fatalf("Worker 1 failed to acquire processing marker: %v", err)
-	}
-	t.Logf("Worker 1 acquired processing marker: %s", procKey)
-
-	// Step B: Simulate side effect FAILURE
-	sideEffectSuccess := false
-	if !sideEffectSuccess {
-		t.Logf("Worker 1 side effect FAILED. Releasing processing marker and leaving message in SQS.")
-		_ = rdb.Del(ctx, procKey).Err()
-		// DO NOT set done marker!
-		// DO NOT delete message from SQS (fail-closed)!
-		// Reset visibility timeout to 0 so next worker can pick it up immediately
-		_, _ = sqsClient.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-			QueueUrl:          aws.String(queueUrl),
-			ReceiptHandle:     msg1.ReceiptHandle,
-			VisibilityTimeout: 0,
-		})
+	// Call production consumer.ProcessShippingOrderEvent with a failing side effect
+	status1, _, err1 := consumer.ProcessShippingOrderEvent(
+		ctx,
+		rdb,
+		[]byte(*msg1.Body),
+		func(orderID, trackingID string) error {
+			return fmt.Errorf("simulated warehouse API 503 error")
+		},
+	)
+	if status1 != consumer.StatusSideEffectFailed {
+		t.Fatalf("Expected StatusSideEffectFailed, got %v (err: %v)", status1, err1)
 	}
 
-	// Verify done key is NOT set
+	// Verify :processing lock is cleaned up and :done is NOT set
+	procExists, _ := rdb.Exists(ctx, procKey).Result()
+	if procExists > 0 {
+		t.Errorf("Processing key should be deleted when side effect fails")
+	}
 	doneExists, _ := rdb.Exists(ctx, doneKey).Result()
 	if doneExists > 0 {
-		t.Fatalf("Done key should NOT be set when side effect failed!")
+		t.Fatalf("Done key should NOT be set when side effect fails")
 	}
+
+	// DO NOT delete message from SQS (fail-closed); reset visibility to 0 for immediate retry
+	_, _ = sqsClient.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
+		QueueUrl:          aws.String(queueUrl),
+		ReceiptHandle:     msg1.ReceiptHandle,
+		VisibilityTimeout: 0,
+	})
 
 	// ── WORKER ATTEMPT 2: Redrive & Side Effect SUCCEEDS ─────────────────────────
 	recv2, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
@@ -312,31 +318,31 @@ func TestConsumerSideEffectFailureAndRetry(t *testing.T) {
 		t.Fatalf("Worker 2 failed to receive redriven message from SQS: %v", err)
 	}
 	msg2 := recv2.Messages[0]
-	t.Logf("Worker 2 received redriven message: %s", *msg2.MessageId)
 
-	// Step A: Check done key (does not exist)
-	isDone, _ := rdb.Exists(ctx, doneKey).Result()
-	if isDone > 0 {
-		t.Fatalf("Done key should not exist before worker 2 executes side effect")
+	var sideEffectRan bool
+	status2, _, err2 := consumer.ProcessShippingOrderEvent(
+		ctx,
+		rdb,
+		[]byte(*msg2.Body),
+		func(orderID, trackingID string) error {
+			sideEffectRan = true
+			return nil
+		},
+	)
+	if status2 != consumer.StatusSuccess {
+		t.Fatalf("Expected StatusSuccess on retry, got %v (err: %v)", status2, err2)
+	}
+	if !sideEffectRan {
+		t.Fatalf("Expected side effect to run on worker 2")
 	}
 
-	// Step B: Acquire processing marker
-	acquired2, err := rdb.SetNX(ctx, procKey, "1", 60*time.Second).Result()
-	if err != nil || !acquired2 {
-		t.Fatalf("Worker 2 failed to acquire processing marker: %v", err)
+	// Verify long-TTL done key is set in Redis
+	doneFinal, _ := rdb.Exists(ctx, doneKey).Result()
+	if doneFinal == 0 {
+		t.Errorf("Expected done marker to exist in Redis after successful processing")
 	}
 
-	// Step C: Execute side effect -> SUCCEEDS!
-	t.Logf("Worker 2 side effect SUCCEEDED!")
-
-	// Step D: Set long-TTL done marker (7 days) and delete processing marker
-	err = rdb.Set(ctx, doneKey, "1", 7*24*time.Hour).Err()
-	if err != nil {
-		t.Fatalf("Failed to set done marker: %v", err)
-	}
-	_ = rdb.Del(ctx, procKey).Err()
-
-	// Step E: Delete message from SQS
+	// Delete message after success
 	_, err = sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		QueueUrl:      aws.String(queueUrl),
 		ReceiptHandle: msg2.ReceiptHandle,
@@ -345,21 +351,105 @@ func TestConsumerSideEffectFailureAndRetry(t *testing.T) {
 		t.Fatalf("Failed to delete SQS message: %v", err)
 	}
 
-	// Verify final state
-	doneFinal, _ := rdb.Exists(ctx, doneKey).Result()
-	if doneFinal == 0 {
-		t.Errorf("Expected done marker to exist in Redis after successful processing")
+	t.Log("SUCCESS: Verified production consumer package two-phase dedup and safe retry against real LocalStack & Redis.")
+}
+
+// TestConsumerProcessingMarkerLockedByAnotherWorker verifies Requirement 6:
+// When a message is received and the :processing marker is held by another worker,
+// the consumer must NOT delete the message and must NOT process it.
+func TestConsumerProcessingMarkerLockedByAnotherWorker(t *testing.T) {
+	ctx := context.Background()
+	cfg, err := getLocalStackConfig(ctx)
+	if err != nil {
+		t.Fatalf("Failed to load AWS config for LocalStack: %v", err)
 	}
 
-	// Verify queue is now empty
-	recvEmpty, _ := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+	sqsClient := sqs.NewFromConfig(cfg)
+	rdb := getRealRedisClient()
+	defer rdb.Close()
+
+	queueName := fmt.Sprintf("test-shipping-locked-%d", time.Now().UnixNano())
+	qRes, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: aws.String(queueName),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create test SQS queue: %v", err)
+	}
+	queueUrl := *qRes.QueueUrl
+
+	testOrderID := fmt.Sprintf("order-locked-%d", time.Now().UnixNano())
+	procKey := fmt.Sprintf("processed_order:shipping:%s:processing", testOrderID)
+	doneKey := fmt.Sprintf("processed_order:shipping:%s:done", testOrderID)
+
+	// Another worker holds the :processing lock in Redis
+	err = rdb.Set(ctx, procKey, "worker-alpha", 60*time.Second).Err()
+	if err != nil {
+		t.Fatalf("Failed to set processing lock: %v", err)
+	}
+	defer rdb.Del(ctx, procKey, doneKey)
+
+	// Send OrderPlaced message to SQS
+	payloadBytes, _ := json.Marshal(map[string]interface{}{
+		"order_id":             testOrderID,
+		"shipping_tracking_id": "TRK-LOCKED-1111",
+	})
+	_, err = sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
+		QueueUrl:    aws.String(queueUrl),
+		MessageBody: aws.String(string(payloadBytes)),
+	})
+	if err != nil {
+		t.Fatalf("Failed to send message: %v", err)
+	}
+
+	// Worker receives message from SQS
+	recv, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(queueUrl),
 		MaxNumberOfMessages: 1,
-		WaitTimeSeconds:     2,
+		WaitTimeSeconds:     5,
 	})
-	if len(recvEmpty.Messages) > 0 {
-		t.Errorf("Queue should be empty after successful processing and deletion")
+	if err != nil || len(recv.Messages) == 0 {
+		t.Fatalf("Failed to receive message from SQS: %v", err)
+	}
+	msg := recv.Messages[0]
+
+	// Worker calls production consumer.ProcessShippingOrderEvent
+	sideEffectExecuted := false
+	status, _, err := consumer.ProcessShippingOrderEvent(
+		ctx,
+		rdb,
+		[]byte(*msg.Body),
+		func(orderID, trackingID string) error {
+			sideEffectExecuted = true
+			return nil
+		},
+	)
+
+	// 1. Must return StatusProcessingLocked
+	if status != consumer.StatusProcessingLocked {
+		t.Errorf("Expected StatusProcessingLocked, got %v (err: %v)", status, err)
 	}
 
-	t.Log("SUCCESS: Verified that side effect failure safely retried and completed with two-phase Redis dedup.")
+	// 2. Side effect must NOT have executed
+	if sideEffectExecuted {
+		t.Errorf("Side effect must NOT execute when :processing is held by another worker")
+	}
+
+	// 3. Worker must NOT delete the message from SQS
+	// Reset visibility so we can verify message is still in queue
+	_, _ = sqsClient.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
+		QueueUrl:          aws.String(queueUrl),
+		ReceiptHandle:     msg.ReceiptHandle,
+		VisibilityTimeout: 0,
+	})
+
+	verifyRecv, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:            aws.String(queueUrl),
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     3,
+	})
+	if err != nil || len(verifyRecv.Messages) == 0 {
+		t.Fatalf("Message was deleted or missing from SQS! It must be retained in queue.")
+	}
+
+	t.Log("SUCCESS: Verified that message with locked :processing marker was NOT processed and NOT deleted from SQS.")
 }

@@ -1,4 +1,4 @@
--- Initialize Schema for Local Integration Testing
+﻿-- Initialize Schema for Local Integration Testing
 CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS orders (
     total_cost_units BIGINT NOT NULL,
     total_cost_nanos INT NOT NULL,
     shipping_tracking_id VARCHAR(64),
+    shipping_cost_units BIGINT DEFAULT 0,
+    shipping_cost_nanos INT DEFAULT 0,
+    street_address VARCHAR(255),
+    city VARCHAR(255),
+    state VARCHAR(255),
+    country VARCHAR(255),
+    zip_code INT,
     status VARCHAR(32) DEFAULT 'CONFIRMED',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -29,7 +36,9 @@ CREATE TABLE IF NOT EXISTS order_items (
     item_id SERIAL PRIMARY KEY,
     order_id VARCHAR(64) REFERENCES orders(order_id) ON DELETE CASCADE,
     product_id VARCHAR(64) REFERENCES products(id),
-    quantity INT NOT NULL
+    quantity INT NOT NULL,
+    cost_units BIGINT DEFAULT 0,
+    cost_nanos INT DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS outbox (

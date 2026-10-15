@@ -11,61 +11,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/GoogleCloudPlatform/microservices-demo/src/inventoryservice/pkg/inventory"
 )
-
-// Redis Cluster mode safe Lua scripts
-const reserveLuaScript = `
-local stockKey = KEYS[1]
-local holdKey  = KEYS[2]
-local expKey   = KEYS[3]
-local qty      = tonumber(ARGV[1])
-local ttl      = tonumber(ARGV[2])
-local expTime  = tonumber(ARGV[3])
-local member   = ARGV[4]
-
-local stock = tonumber(redis.call('GET', stockKey) or '0')
-if stock >= qty then
-    redis.call('DECRBY', stockKey, qty)
-    redis.call('SET', holdKey, qty, 'EX', ttl)
-    if expKey and expKey ~= '' then
-        redis.call('ZADD', expKey, expTime, member)
-    end
-    return 1
-else
-    return 0
-end
-`
-
-const reapProductLuaScript = `
-local stockKey = KEYS[1]
-local expKey   = KEYS[2]
-local now      = tonumber(ARGV[1])
-local expired  = redis.call('ZRANGEBYSCORE', expKey, '-inf', now, 'LIMIT', 0, 50)
-local restored = 0
-
-for _, item in ipairs(expired) do
-    if redis.call('ZREM', expKey, item) == 1 then
-        local pid, cart, qty = string.match(item, "([^|]+)|([^|]+)|([^|]+)")
-        if qty then
-            local holdKey = "hold:{" .. pid .. "}:" .. cart
-            redis.call('INCRBY', stockKey, tonumber(qty))
-            redis.call('DEL', holdKey)
-            restored = restored + 1
-        end
-    end
-end
-return restored
-`
-
-const reconcileCASLuaScript = `
-local current = redis.call('GET', KEYS[1])
-if current == ARGV[1] then
-    redis.call('SET', KEYS[1], ARGV[2])
-    return 1
-else
-    return 0
-end
-`
 
 func setupTestRedis(t *testing.T) (*redis.Client, func()) {
 	addr := os.Getenv("REDIS_ADDR")
@@ -119,8 +66,8 @@ func TestLuaReservation(t *testing.T) {
 	expTime := now + 900
 	member := fmt.Sprintf("%s|%s|2", pid, cartID)
 
-	// Run reserveLuaScript for 2 units
-	res, err := rdb.Eval(ctx, reserveLuaScript, []string{stockKey, holdKey, expKey}, 2, 900, expTime, member).Result()
+	// Run inventory.ReserveLuaScript for 2 units
+	res, err := rdb.Eval(ctx, inventory.ReserveLuaScript, []string{stockKey, holdKey, expKey}, 2, 900, expTime, member).Result()
 	if err != nil {
 		t.Fatalf("Lua reservation failed: %v", err)
 	}
@@ -182,7 +129,7 @@ func TestReaperMultiInstance(t *testing.T) {
 		go func(workerID int) {
 			defer wg.Done()
 			<-startBarrier
-			res, err := rdb.Eval(ctx, reapProductLuaScript, []string{stockKey, expKey}, now).Result()
+			res, err := rdb.Eval(ctx, inventory.ReapProductLuaScript, []string{stockKey, expKey}, now).Result()
 			if err == nil {
 				if restored, ok := res.(int64); ok {
 					atomic.AddInt64(&totalRestored, restored)
@@ -233,7 +180,7 @@ func TestReconciliationCompareAndSetCAS(t *testing.T) {
 	_ = rdb.Set(ctx, stockKey, 9, 0).Err()
 
 	// Step 3: Reconciler executes Lua CAS with old observed value ("10")
-	res, err := rdb.Eval(ctx, reconcileCASLuaScript, []string{stockKey}, observedValue, correctedExpectedValue).Result()
+	res, err := rdb.Eval(ctx, inventory.ReconcileCASLuaScript, []string{stockKey}, observedValue, correctedExpectedValue).Result()
 	if err != nil {
 		t.Fatalf("Lua CAS execution failed: %v", err)
 	}
@@ -252,7 +199,7 @@ func TestReconciliationCompareAndSetCAS(t *testing.T) {
 
 	// Step 4: Reconciler re-reads observed value = "9" and re-attempts CAS
 	newObservedValue := "9"
-	res2, err := rdb.Eval(ctx, reconcileCASLuaScript, []string{stockKey}, newObservedValue, correctedExpectedValue).Result()
+	res2, err := rdb.Eval(ctx, inventory.ReconcileCASLuaScript, []string{stockKey}, newObservedValue, correctedExpectedValue).Result()
 	if err != nil {
 		t.Fatalf("Second Lua CAS failed: %v", err)
 	}
@@ -399,7 +346,7 @@ func TestLastItemRace(t *testing.T) {
 			holdKey := fmt.Sprintf("hold:{%s}:%s", pid, userCart)
 			member := fmt.Sprintf("%s|%s|1", pid, userCart)
 
-			res, err := rdb.Eval(ctx, reserveLuaScript, []string{stockKey, holdKey, expKey}, 1, 900, time.Now().Unix()+900, member).Result()
+			res, err := rdb.Eval(ctx, inventory.ReserveLuaScript, []string{stockKey, holdKey, expKey}, 1, 900, time.Now().Unix()+900, member).Result()
 			if err == nil && res.(int64) == 1 {
 				atomic.AddInt64(&successes, 1)
 			} else {
