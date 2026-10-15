@@ -66,8 +66,6 @@ func Test01_LastItemRace(t *testing.T) {
 				return
 			}
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			// Each virtual user sends distinct client IP so rate limiter distinguishes distinct users
-			req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.0.1.%d", userIndex+1))
 			req.Header.Set("X-Bypass-Rate-Limit", "test-suite")
 
 			resp, err := client.Do(req)

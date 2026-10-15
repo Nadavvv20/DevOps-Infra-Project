@@ -24,3 +24,8 @@ output "shippingservice_role_arn" {
   description = "IRSA role ARN for shippingservice (SQS consumer)."
   value       = aws_iam_role.shippingservice_sqs.arn
 }
+
+output "yace_exporter_role_arn" {
+  description = "IRSA role ARN for YACE CloudWatch exporter."
+  value       = aws_iam_role.yace_sqs_exporter.arn
+}

@@ -28,12 +28,9 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const PRODUCT_ID = __ENV.TEST_PRODUCT_ID || 'OLJCESPC7Z'; // Vintage Typewriter
 
 export default function () {
-  const vuIP = `10.0.1.${__VU}`;
-
-  // Step 1: Visit home page with client IP
+  // Step 1: Visit home page
   const homeResp = http.get(`${BASE_URL}/`, {
     headers: {
-      'X-Forwarded-For': vuIP,
       'X-Bypass-Rate-Limit': 'test-suite',
     },
   });
@@ -50,7 +47,6 @@ export default function () {
   const params = {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'X-Forwarded-For': vuIP,
       'X-Bypass-Rate-Limit': 'test-suite',
     },
     redirects: 2,

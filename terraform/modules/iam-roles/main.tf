@@ -183,3 +183,44 @@ resource "aws_iam_role_policy" "shippingservice_sqs" {
   })
 }
 
+# ── YACE CloudWatch Exporter ──────────────────────────────────────────────────
+# yace-sqs-exporter requires read-only CloudWatch metric permissions.
+resource "aws_iam_role" "yace_sqs_exporter" {
+  name = "${var.cluster_name}-yace-sqs-exporter"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Principal = { Federated = var.oidc_provider_arn }
+      Condition = {
+        StringEquals = {
+          "${var.oidc_issuer_url}:sub" = "system:serviceaccount:monitoring:yace-sqs-exporter"
+          "${var.oidc_issuer_url}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "yace_sqs_exporter" {
+  name = "cloudwatch-metrics-read"
+  role = aws_iam_role.yace_sqs_exporter.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "tag:GetResources",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics"
+      ]
+      Resource = ["*"]
+    }]
+  })
+}
+

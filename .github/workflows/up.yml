@@ -341,23 +341,62 @@ jobs:
               --set production=false \
               --set proxy=edge \
               --wait --timeout 8m
+            echo "Keycloak Helm chart installed successfully."
+          fi
 
-            ENV_NAME="${{ github.event.inputs.environment }}"
-            KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}')
-            ADMIN_USER=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN}' | base64 -d)
-            ADMIN_PASS=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN_PASSWORD}' | base64 -d)
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user "$ADMIN_USER" --password "$ADMIN_PASS" || true
+      - name: Configure and Verify Keycloak Realms
+        run: |
+          echo "Waiting for Keycloak pod to be Ready..."
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=keycloak -n keycloak --timeout=180s
 
-            if [ "$ENV_NAME" == "prod" ]; then
-              echo "PRODUCTION ENVIRONMENT: Enforcing strict Keycloak sslRequired=ALL..."
-              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=ALL || true
-              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=ALL || true
-            else
-              echo "DEV ENVIRONMENT: Configuring Keycloak realm sslRequired=NONE for plain HTTP ALB testing..."
-              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE || true
-              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=NONE || true
+          KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}')
+          ADMIN_USER=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN}' | base64 -d)
+          ADMIN_PASS=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN_PASSWORD}' | base64 -d)
+
+          echo "Authenticating kcadm CLI with master realm..."
+          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh config credentials \
+            --server http://localhost:8080/auth \
+            --realm master \
+            --user "$ADMIN_USER" \
+            --password "$ADMIN_PASS"
+
+          echo "Checking if online-boutique realm exists..."
+          if ! kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/online-boutique >/dev/null 2>&1; then
+            echo "Creating online-boutique realm..."
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create realms -s realm=online-boutique -s enabled=true
+          else
+            echo "online-boutique realm already exists."
+          fi
+
+          ENV_NAME="${{ github.event.inputs.environment }}"
+          if [ "$ENV_NAME" == "prod" ]; then
+            echo "PRODUCTION: Updating realms with sslRequired=ALL..."
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=ALL
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=ALL
+          else
+            echo "DEV: Updating realms with sslRequired=NONE..."
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=NONE
+          fi
+
+          echo "Verifying sslRequired configuration for both realms..."
+          MASTER_SSL=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/master --fields sslRequired --format csv --noquotes)
+          BOUTIQUE_SSL=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/online-boutique --fields sslRequired --format csv --noquotes)
+          echo "  master realm sslRequired:          ${MASTER_SSL}"
+          echo "  online-boutique realm sslRequired: ${BOUTIQUE_SSL}"
+
+          if [ "$ENV_NAME" == "prod" ]; then
+            if [ "$MASTER_SSL" != "ALL" ] || [ "$BOUTIQUE_SSL" != "ALL" ]; then
+              echo "ERROR: Keycloak verification failed! Production requires sslRequired=ALL"
+              exit 1
+            fi
+          else
+            if [ "$MASTER_SSL" != "NONE" ] || [ "$BOUTIQUE_SSL" != "NONE" ]; then
+              echo "ERROR: Keycloak verification failed! Dev requires sslRequired=NONE"
+              exit 1
             fi
           fi
+          echo "Keycloak realms verified successfully!"
 
       - name: Annotate ServiceAccounts with SQS IRSA Role ARNs
         run: |
