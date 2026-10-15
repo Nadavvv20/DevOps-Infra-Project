@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-inventory-events
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    release: kube-prometheus-stack
+data:
+  inventory-events-overview.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Inventory Service & Soft-Lock Reservations",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 80 } },
+            "overrides": []
+          },
+          "gridPos": { "h": 7, "w": 8, "x": 0, "y": 1 },
+          "id": 1,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "title": "Reservation Rate by Result",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(inventory_reservations_total[1m])",
+              "legendFormat": "{{result}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 50 },
+                  { "color": "red", "value": 200 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 7, "w": 8, "x": 8, "y": 1 },
+          "id": 2,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } },
+          "title": "Active Reserved Holds (Redis)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "inventory_active_holds",
+              "legendFormat": "Active Holds",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 7, "w": 8, "x": 16, "y": 1 },
+          "id": 3,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } },
+          "title": "Stock Drift (Redis vs Aurora)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "inventory_stock_drift",
+              "legendFormat": "Stock Drift Units",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 },
+          "id": 101,
+          "title": "Deterministic Hold Reaper & Catalog Cache-Aside",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 9 },
+          "id": 4,
+          "title": "Expired Holds Restored by Reaper",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(inventory_hold_expired_total[1m])",
+              "legendFormat": "Restored Expired Holds/sec",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 9 },
+          "id": 5,
+          "title": "Product Catalog Cache Hit vs Miss Rate",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(productcatalog_cache_hits_total[1m])",
+              "legendFormat": "Cache Hits/sec",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(productcatalog_cache_misses_total[1m])",
+              "legendFormat": "Cache Misses/sec",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+          "id": 102,
+          "title": "Async Messaging — SQS Queues & DLQ Monitoring",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 17 },
+          "id": 6,
+          "title": "Visible Messages by SQS Queue",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "aws_sqs_approximate_number_of_messages_visible_maximum{queue_name=~\"order-events-.*\"}",
+              "legendFormat": "{{queue_name}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 17 },
+          "id": 7,
+          "title": "DLQ Messages Visible (Alert if > 0)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{queue_name=~\".*-dlq\"})",
+              "legendFormat": "Total Poison Messages in DLQ",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["online-boutique", "inventory", "sqs", "outbox"],
+      "time": { "from": "now-30m", "to": "now" },
+      "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+      "timezone": "browser",
+      "title": "Online Boutique – Inventory & Async Event Pipeline",
+      "uid": "online-boutique-inventory-pipeline",
+      "version": 1
+    }
