@@ -333,6 +333,14 @@ jobs:
               --set production=false \
               --set proxy=edge \
               --wait --timeout 8m
+
+            echo "Configuring Keycloak realm sslRequired=none for plain HTTP ALB in dev..."
+            KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}')
+            ADMIN_USER=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN}' | base64 -d)
+            ADMIN_PASS=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN_PASSWORD}' | base64 -d)
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user "$ADMIN_USER" --password "$ADMIN_PASS" || true
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE || true
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=NONE || true
           fi
 
       - name: Annotate ServiceAccounts with SQS IRSA Role ARNs
