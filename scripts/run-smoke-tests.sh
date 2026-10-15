@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # Smoke Test Runner — Online Boutique Architecture Validation Suite
-# Runs the 13 verification tests against the deployed cluster/ALB.
+# Runs against the deployed cluster/ALB.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -eo pipefail
@@ -25,20 +25,30 @@ fi
 export BASE_URL="${BASE_URL:-http://localhost:8080}"
 export AWS_REGION="${AWS_REGION:-il-central-1}"
 export CLUSTER_NAME="${CLUSTER_NAME:-online-boutique-dev}"
+export RUN_DESTRUCTIVE="${RUN_DESTRUCTIVE:-false}"
 
 echo "Target Configuration:"
-echo "  Base URL:     ${BASE_URL}"
-echo "  AWS Region:   ${AWS_REGION}"
-echo "  Cluster Name: ${CLUSTER_NAME}"
+echo "  Base URL:        ${BASE_URL}"
+echo "  AWS Region:      ${AWS_REGION}"
+echo "  Cluster Name:    ${CLUSTER_NAME}"
+echo "  Run Destructive: ${RUN_DESTRUCTIVE}"
 echo ""
 
 cd "${REPO_ROOT}/tests/smoke"
 
+TEST_PATTERN="."
+if [ "$RUN_DESTRUCTIVE" != "true" ]; then
+  echo "Running FAST non-destructive smoke test suite (safe after every deploy)..."
+  TEST_PATTERN="Test01|Test04|Test05|Test07|Test09|Test10|Test11|Test12|Test13"
+else
+  echo "Running FULL test suite including DESTRUCTIVE tests (pod kills, DLQ injection)..."
+fi
+
 if command -v go >/dev/null 2>&1; then
   echo "Executing Go smoke test suite..."
-  go test -v -timeout 15m ./...
+  go test -v -timeout 15m -run "${TEST_PATTERN}" ./...
 elif command -v docker >/dev/null 2>&1; then
-  echo "Go not installed locally, executing via official golang container..."
+  echo "Executing via official golang container..."
   docker run --rm \
     --network host \
     -e BASE_URL="${BASE_URL}" \
@@ -47,13 +57,13 @@ elif command -v docker >/dev/null 2>&1; then
     -v "${REPO_ROOT}/tests/smoke:/workspace" \
     -w /workspace \
     golang:1.23-alpine \
-    go test -v -timeout 15m ./...
+    go test -v -timeout 15m -run "${TEST_PATTERN}" ./...
 else
-  echo "Error: Neither 'go' nor 'docker' is available to run tests."
-  exit 1
+  echo "Executing via WSL Go..."
+  wsl -d Ubuntu -- bash -c "cd '${REPO_ROOT}/tests/smoke' && ~/go/bin/go test -v -timeout 15m -run '${TEST_PATTERN}' ./..."
 fi
 
 echo ""
 echo "=========================================================="
-echo " All Smoke Tests Finished Successfully!                   "
+echo " Smoke Tests Completed!                                   "
 echo "=========================================================="

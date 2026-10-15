@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Smoke Test Runner (PowerShell) — Online Boutique Architecture Validation Suite
-# Runs the 13 verification tests against the deployed cluster/ALB.
+# Runs against the deployed cluster/ALB.
 # ─────────────────────────────────────────────────────────────────────────────
 
 $ErrorActionPreference = "Stop"
@@ -30,33 +30,37 @@ if (-not $env:AWS_REGION) {
 if (-not $env:CLUSTER_NAME) {
     $env:CLUSTER_NAME = "online-boutique-dev"
 }
+if (-not $env:RUN_DESTRUCTIVE) {
+    $env:RUN_DESTRUCTIVE = "false"
+}
 
 Write-Host "Target Configuration:" -ForegroundColor Yellow
-Write-Host "  Base URL:     $($env:BASE_URL)"
-Write-Host "  AWS Region:   $($env:AWS_REGION)"
-Write-Host "  Cluster Name: $($env:CLUSTER_NAME)"
+Write-Host "  Base URL:        $($env:BASE_URL)"
+Write-Host "  AWS Region:      $($env:AWS_REGION)"
+Write-Host "  Cluster Name:    $($env:CLUSTER_NAME)"
+Write-Host "  Run Destructive: $($env:RUN_DESTRUCTIVE)"
 Write-Host ""
+
+$testPattern = "."
+if ($env:RUN_DESTRUCTIVE -ne "true") {
+    Write-Host "Running FAST non-destructive smoke test suite (safe after every deploy)..." -ForegroundColor Yellow
+    $testPattern = "Test01|Test04|Test05|Test07|Test09|Test10|Test11|Test12|Test13"
+} else {
+    Write-Host "Running FULL test suite including DESTRUCTIVE tests (pod kills, DLQ injection)..." -ForegroundColor Red
+}
 
 Set-Location "$RepoRoot\tests\smoke"
 
 if (Get-Command go -ErrorAction SilentlyContinue) {
     Write-Host "Executing Go smoke test suite..." -ForegroundColor Green
-    go test -v -timeout 15m ./...
-} elseif (Get-Command docker -ErrorAction SilentlyContinue) {
-    Write-Host "Go not installed locally, executing via Docker container..." -ForegroundColor Green
-    docker run --rm `
-        -e BASE_URL="$($env:BASE_URL)" `
-        -e AWS_REGION="$($env:AWS_REGION)" `
-        -e CLUSTER_NAME="$($env:CLUSTER_NAME)" `
-        -v "${RepoRoot}\tests\smoke:/workspace" `
-        -w /workspace `
-        golang:1.23-alpine `
-        go test -v -timeout 15m ./...
+    go test -v -timeout 15m -run "$testPattern" ./...
 } else {
-    Write-Error "Error: Neither 'go' nor 'docker' is available to run tests."
+    Write-Host "Executing via WSL Go..." -ForegroundColor Green
+    $wslPath = $RepoRoot.Replace("\", "/").Replace("C:", "/mnt/c")
+    wsl -d Ubuntu -- bash -c "cd '$wslPath/tests/smoke' && ~/go/bin/go test -v -timeout 15m -run '$testPattern' ./..."
 }
 
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " All Smoke Tests Finished Successfully!                   " -ForegroundColor Cyan
+Write-Host " Smoke Tests Completed!                                   " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan

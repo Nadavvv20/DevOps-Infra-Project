@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: test-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: test-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: boutique_user
+      POSTGRES_PASSWORD: boutique_password
+      POSTGRES_DB: boutique_db
+    volumes:
+      - ./tests/integration/init-test-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boutique_user -d boutique_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: test-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sns,sqs
+      DEFAULT_REGION: il-central-1
+      AWS_DEFAULT_REGION: il-central-1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

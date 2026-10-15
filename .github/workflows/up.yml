@@ -27,6 +27,10 @@ on:
         description: "Run automated architecture smoke test suite after deployment"
         type: boolean
         default: true
+      run_destructive_tests:
+        description: "Run destructive architecture tests (pod kills, DLQ injection)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -338,13 +342,21 @@ jobs:
               --set proxy=edge \
               --wait --timeout 8m
 
-            echo "Configuring Keycloak realm sslRequired=none for plain HTTP ALB in dev..."
+            ENV_NAME="${{ github.event.inputs.environment }}"
             KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}')
             ADMIN_USER=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN}' | base64 -d)
             ADMIN_PASS=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN_PASSWORD}' | base64 -d)
             kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user "$ADMIN_USER" --password "$ADMIN_PASS" || true
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE || true
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=NONE || true
+
+            if [ "$ENV_NAME" == "prod" ]; then
+              echo "PRODUCTION ENVIRONMENT: Enforcing strict Keycloak sslRequired=ALL..."
+              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=ALL || true
+              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=ALL || true
+            else
+              echo "DEV ENVIRONMENT: Configuring Keycloak realm sslRequired=NONE for plain HTTP ALB testing..."
+              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE || true
+              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired=NONE || true
+            fi
           fi
 
       - name: Annotate ServiceAccounts with SQS IRSA Role ARNs
@@ -443,5 +455,6 @@ jobs:
             CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
           fi
           export CLUSTER_NAME
+          export RUN_DESTRUCTIVE="${{ github.event.inputs.run_destructive_tests || 'false' }}"
           chmod +x scripts/run-smoke-tests.sh
           ./scripts/run-smoke-tests.sh

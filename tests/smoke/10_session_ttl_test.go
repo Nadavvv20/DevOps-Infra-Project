@@ -3,7 +3,6 @@ package smoke
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,9 +28,9 @@ func Test10_SessionTTL(t *testing.T) {
 	resp.Body.Close()
 
 	// Extract session ID from cookie jar
-	u, _ := client.Jar.Cookies(resp.Request.URL)
+	cookies := client.Jar.Cookies(resp.Request.URL)
 	var sessionID string
-	for _, cookie := range u {
+	for _, cookie := range cookies {
 		if cookie.Name == "shop_session-id" || cookie.Name == "session-id" {
 			sessionID = cookie.Value
 			break

@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Test04_CheckoutAfterHoldExpiry verifies that checkout is rejected

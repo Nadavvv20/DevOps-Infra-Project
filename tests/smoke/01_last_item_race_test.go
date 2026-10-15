@@ -9,7 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 // Test01_LastItemRace verifies that when a product has stock=1,
@@ -67,6 +66,9 @@ func Test01_LastItemRace(t *testing.T) {
 				return
 			}
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			// Each virtual user sends distinct client IP so rate limiter distinguishes distinct users
+			req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.0.1.%d", userIndex+1))
+			req.Header.Set("X-Bypass-Rate-Limit", "test-suite")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -75,6 +77,13 @@ func Test01_LastItemRace(t *testing.T) {
 			}
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(resp.Body)
+
+			// FAIL FAST: Any HTTP 429 rate limit is treated as a hard failure
+			if resp.StatusCode == http.StatusTooManyRequests {
+				t.Errorf("FAIL: User %d tripped HTTP 429 Too Many Requests during race test", userIndex)
+				atomic.AddInt64(&failureCount, 1)
+				return
+			}
 
 			// Success is typically 200 OK or 302/303 redirect with item present in cart
 			bodyStr := string(body)

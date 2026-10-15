@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Test13_GuestCartMigration verifies that:
@@ -57,9 +58,9 @@ func Test13_GuestCartMigration(t *testing.T) {
 	respValid.Body.Close()
 
 	// Extract guest session ID
-	u, _ := client.Jar.Cookies(respValid.Request.URL)
+	cookies := client.Jar.Cookies(respValid.Request.URL)
 	var guestSessionID string
-	for _, cookie := range u {
+	for _, cookie := range cookies {
 		if cookie.Name == "shop_session-id" || cookie.Name == "session-id" {
 			guestSessionID = cookie.Value
 			break

@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yace-sqs-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: yace-sqs-exporter
+data:
+  config.yml: |
+    apiVersion: v1alpha1
+    discovery:
+      exportedTagsOnMetrics:
+        AWS/SQS:
+          - QueueName
+      jobs:
+        - type: sqs
+          regions:
+            - il-central-1
+          searchTags:
+            - key: app.kubernetes.io/part-of
+              value: online-boutique
+          metrics:
+            - name: ApproximateNumberOfMessagesVisible
+              statistics: [Maximum]
+              period: 60
+              length: 300
+            - name: ApproximateNumberOfMessagesNotVisible
+              statistics: [Maximum]
+              period: 60
+              length: 300
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yace-sqs-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: yace-sqs-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: yace-sqs-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yace-sqs-exporter
+    spec:
+      containers:
+        - name: yace
+          image: ghcr.io/nerdswords/yet-another-cloudwatch-exporter:v0.61.1
+          args:
+            - "--config.file=/etc/yace/config.yml"
+          ports:
+            - name: metrics
+              containerPort: 5000
+          volumeMounts:
+            - name: config
+              mountPath: /etc/yace
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: config
+          configMap:
+            name: yace-sqs-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yace-sqs-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: yace-sqs-exporter
+    monitoring: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: yace-sqs-exporter
+  ports:
+    - name: metrics
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: yace-sqs-exporter
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: yace-sqs-exporter
+      monitoring: "true"
+  endpoints:
+    - port: metrics
+      interval: 60s
+      path: /metrics
