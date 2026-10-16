@@ -11,6 +11,8 @@ import (
 	"github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice/pkg/orders"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -164,7 +166,7 @@ func TestCheckoutIdempotencyRealPostgres(t *testing.T) {
 
 	// Verify two distinct orders exist in database for the same user
 	var userOrderCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM orders WHERE user_id = $1", userID).Scan(&userOrderCount)
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM orders WHERE user_id = $1 AND status = 'CONFIRMED'", userID).Scan(&userOrderCount)
 	if err != nil || userOrderCount != 2 {
 		t.Errorf("Expected 2 distinct orders in database for user %s, found %d", userID, userOrderCount)
 	}
@@ -267,7 +269,7 @@ func TestConcurrentPlaceOrderSameKeyRace(t *testing.T) {
 			}
 
 			// 2. Acquire atomic per-key lock (Redis SET NX + Postgres PENDING row)
-			acquired, err := orders.AcquireOrderLock(ctx, db, rdb, orderID, userID, userEmail, "USD")
+			orderLock, acquired, err := orders.AcquireOrderLock(ctx, db, rdb, orderID, userID, userEmail, "USD")
 			if err != nil {
 				results[idx] = workerResult{err: err}
 				return
@@ -278,6 +280,7 @@ func TestConcurrentPlaceOrderSameKeyRace(t *testing.T) {
 				results[idx] = workerResult{order: rec, err: err, isWinner: false}
 				return
 			}
+			defer orderLock.Release(ctx)
 
 			// Winner:
 			// 3. Charge payment
@@ -286,17 +289,11 @@ func TestConcurrentPlaceOrderSameKeyRace(t *testing.T) {
 			// 4. Persist order: transition PENDING -> CONFIRMED, insert items, deduct inventory
 			isNew, err := orders.PersistOrder(ctx, db, orderRec, 35, 0, userID, userEmail)
 			if err != nil {
-				orders.ReleaseOrderLock(ctx, db, rdb, orderID)
 				results[idx] = workerResult{err: err, isWinner: true}
 				return
 			}
 			if !isNew {
 				t.Errorf("Winner PersistOrder should have returned isNew=true")
-			}
-
-			// 5. Release redis lock
-			if rdb != nil {
-				_ = rdb.Del(ctx, "lock:checkout:"+orderID)
 			}
 
 			confirmed, err := orders.GetOrderFromDB(ctx, db, orderID)
@@ -353,24 +350,24 @@ func TestConcurrentPlaceOrderSameKeyRace(t *testing.T) {
 	t.Logf("SUCCESS: 10 concurrent requests with the same key resulted in exactly 1 payment call, 1 order, and 1 inventory deduction (%d -> %d)!", initialStock, finalStock)
 
 	// ── TEST CASE C: FAILURE AND RETRY LOCK RELEASE ───────────────────────────
-	// Verify that if a winner fails before payment or commit, the lock is released
-	// so a subsequent legitimate retry is possible.
 	failKey := fmt.Sprintf("checkout-fail-retry-%d", time.Now().UnixNano())
 	failOrderID := orders.DeriveOrderID(failKey)
 
 	// Attempt 1 fails:
-	acquired, err := orders.AcquireOrderLock(ctx, db, rdb, failOrderID, userID, userEmail, "USD")
+	lock1, acquired, err := orders.AcquireOrderLock(ctx, db, rdb, failOrderID, userID, userEmail, "USD")
 	if err != nil || !acquired {
 		t.Fatalf("Failed to acquire lock for fail test: %v", err)
 	}
 	// Simulate failure before payment: release lock
-	orders.ReleaseOrderLock(ctx, db, rdb, failOrderID)
+	lock1.Release(ctx)
 
 	// Attempt 2 (legitimate retry with same key) must be able to acquire lock and succeed:
-	retryAcquired, err := orders.AcquireOrderLock(ctx, db, rdb, failOrderID, userID, userEmail, "USD")
+	retryLock, retryAcquired, err := orders.AcquireOrderLock(ctx, db, rdb, failOrderID, userID, userEmail, "USD")
 	if err != nil || !retryAcquired {
 		t.Fatalf("Legitimate retry failed to acquire lock after previous failure release: %v", err)
 	}
+	defer retryLock.Release(ctx)
+
 	// Complete retry order
 	failOrderRec := &orders.OrderRecord{
 		OrderID:       failOrderID,
@@ -390,7 +387,6 @@ func TestConcurrentPlaceOrderSameKeyRace(t *testing.T) {
 	if err != nil || !isNewRetry {
 		t.Fatalf("Retry PersistOrder failed: %v", err)
 	}
-	orders.ReleaseOrderLock(ctx, db, rdb, failOrderID)
 
 	var retryStock int32
 	_ = db.QueryRowContext(ctx, "SELECT total_stock FROM inventory WHERE product_id = $1", testProductID).Scan(&retryStock)
@@ -400,3 +396,327 @@ func TestConcurrentPlaceOrderSameKeyRace(t *testing.T) {
 	t.Logf("SUCCESS: Verified failure lock release allows subsequent retry to succeed.")
 }
 
+// TestLockRenewalDuringLongPayment tests that a winner whose payment takes longer than original TTL
+// keeps the lock active via renewal, and a concurrent request does NOT steal the lock or charge a second time.
+func TestLockRenewalDuringLongPayment(t *testing.T) {
+	t.Setenv("CHECKOUT_LOCK_TTL_SECONDS", "1")
+	t.Setenv("CHECKOUT_PENDING_STALE_SECONDS", "10")
+
+	db := getRealPostgresDB(t)
+	defer db.Close()
+
+	rdb, cleanupRedis := setupTestRedis(t)
+	defer cleanupRedis()
+
+	ctx := context.Background()
+
+	testProductID := fmt.Sprintf("prod-renew-%d", time.Now().UnixNano())
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO products (id, name, price_usd_units, price_usd_nanos)
+		VALUES ($1, 'Renewal Test Item', 20, 0) ON CONFLICT (id) DO NOTHING`, testProductID)
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO inventory (product_id, total_stock, updated_at)
+		VALUES ($1, 20, NOW())
+		ON CONFLICT (product_id) DO UPDATE SET total_stock = 20, updated_at = NOW()`, testProductID)
+
+	userID := fmt.Sprintf("user-renew-%d", time.Now().UnixNano())
+	userEmail := "renew-buyer@example.com"
+	sharedKey := fmt.Sprintf("renew-token-%d", time.Now().UnixNano())
+	orderID := orders.DeriveOrderID(sharedKey)
+
+	orderRec := &orders.OrderRecord{
+		OrderID:       orderID,
+		UserCurrency:  "USD",
+		TrackingID:    "TRK-RENEW-001",
+		ShipCostUnits: 5,
+		Street:        "100 Long Payment Way",
+		City:          "San Francisco",
+		State:         "CA",
+		Country:       "USA",
+		ZipCode:       94105,
+		Items: []orders.OrderItemRecord{
+			{ProductID: testProductID, Quantity: 2, CostUnits: 20, CostNanos: 0},
+		},
+	}
+
+	var paymentCalls int64
+
+	// Winner acquires lock with TTL = 1s, background renewal running every ~333ms
+	winnerLock, acquired, err := orders.AcquireOrderLock(ctx, db, rdb, orderID, userID, userEmail, "USD")
+	if err != nil || !acquired {
+		t.Fatalf("Winner failed to acquire lock: %v (acquired=%v)", err, acquired)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var loserResult *orders.OrderRecord
+	var loserErr error
+	var loserAcquired bool
+
+	// Goroutine 1: Winner working on payment for 2.2 seconds (much longer than original 1s TTL)
+	go func() {
+		defer wg.Done()
+		defer winnerLock.Release(ctx)
+
+		time.Sleep(2200 * time.Millisecond) // Long payment
+		atomic.AddInt64(&paymentCalls, 1)
+
+		// Persist confirmed order
+		_, err := orders.PersistOrder(ctx, db, orderRec, 45, 0, userID, userEmail)
+		if err != nil {
+			t.Errorf("Winner persist order failed: %v", err)
+		}
+	}()
+
+	// Goroutine 2: Concurrent request arrives at t = 1.3 seconds (after original 1s TTL)
+	go func() {
+		defer wg.Done()
+		time.Sleep(1300 * time.Millisecond) // Wait until after initial TTL has expired
+
+		// Try to acquire lock
+		secondLock, secondAcquired, err := orders.AcquireOrderLock(ctx, db, rdb, orderID, userID, userEmail, "USD")
+		loserAcquired = secondAcquired
+		if err != nil {
+			loserErr = err
+			return
+		}
+		if secondAcquired {
+			// Lock was stolen! This would be a VIOLATION!
+			defer secondLock.Release(ctx)
+			atomic.AddInt64(&paymentCalls, 1) // second payment (bug!)
+			t.Errorf("VIOLATION: Winner lost lock during long payment! Concurrent request acquired lock.")
+			return
+		}
+
+		// Loser correctly sees lock is held by winner: wait for confirmed order
+		rec, err := orders.WaitForConfirmedOrder(ctx, db, rdb, orderID, 4*time.Second)
+		loserResult = rec
+		loserErr = err
+	}()
+
+	wg.Wait()
+
+	if loserAcquired {
+		t.Fatalf("VIOLATION: Concurrent request acquired lock while winner was still renewing!")
+	}
+	if actual := atomic.LoadInt64(&paymentCalls); actual != 1 {
+		t.Fatalf("VIOLATION: Expected exactly 1 payment call, got %d", actual)
+	}
+	if loserErr != nil || loserResult == nil || loserResult.Status != "CONFIRMED" {
+		t.Fatalf("Loser failed to receive confirmed order: err=%v, res=%+v", loserErr, loserResult)
+	}
+
+	// Verify inventory only deducted once (20 - 2 = 18)
+	var finalStock int32
+	_ = db.QueryRowContext(ctx, "SELECT total_stock FROM inventory WHERE product_id = $1", testProductID).Scan(&finalStock)
+	if finalStock != 18 {
+		t.Fatalf("Expected final stock 18, got %d", finalStock)
+	}
+
+	t.Logf("SUCCESS: Winner holding lock through 2.2s long payment (TTL=1s) renewed lock, concurrent request was locked out and received confirmed order.")
+}
+
+// TestLockOwnerDiedExpiresAndRetryProceeds verifies that when a lock owner dies (no renewal),
+// the lock expires after TTL and a subsequent retry can reacquire and proceed.
+func TestLockOwnerDiedExpiresAndRetryProceeds(t *testing.T) {
+	t.Setenv("CHECKOUT_LOCK_TTL_SECONDS", "1")
+	t.Setenv("CHECKOUT_PENDING_STALE_SECONDS", "2")
+
+	db := getRealPostgresDB(t)
+	defer db.Close()
+
+	rdb, cleanupRedis := setupTestRedis(t)
+	defer cleanupRedis()
+
+	ctx := context.Background()
+
+	testProductID := fmt.Sprintf("prod-dead-%d", time.Now().UnixNano())
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO products (id, name, price_usd_units, price_usd_nanos)
+		VALUES ($1, 'Dead Lock Item', 10, 0) ON CONFLICT (id) DO NOTHING`, testProductID)
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO inventory (product_id, total_stock, updated_at)
+		VALUES ($1, 10, NOW())
+		ON CONFLICT (product_id) DO UPDATE SET total_stock = 10, updated_at = NOW()`, testProductID)
+
+	userID := fmt.Sprintf("user-dead-%d", time.Now().UnixNano())
+	userEmail := "dead-owner@example.com"
+	key := fmt.Sprintf("dead-lock-token-%d", time.Now().UnixNano())
+	orderID := orders.DeriveOrderID(key)
+
+	// Simulate dead worker: set Redis lock with 1s TTL (no renewal goroutine), and insert PENDING row created 3s ago
+	_ = rdb.Set(ctx, "lock:checkout:"+orderID, "dead-worker-token", 1*time.Second).Err()
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO orders (
+			order_id, user_id, email, user_currency,
+			total_cost_units, total_cost_nanos,
+			shipping_tracking_id, shipping_cost_units, shipping_cost_nanos,
+			street_address, city, state, country, zip_code, status, created_at
+		) VALUES ($1, $2, $3, 'USD', 0, 0, '', 0, 0, '', '', '', '', 0, 'PENDING', NOW() - INTERVAL '10 seconds')
+		ON CONFLICT (order_id) DO NOTHING`,
+		orderID, userID, userEmail)
+	if err != nil {
+		t.Fatalf("Failed to seed dead worker row: %v", err)
+	}
+
+	// Wait 1.5s so Redis 1s key TTL definitely expires
+	time.Sleep(1500 * time.Millisecond)
+
+	// Now a retry arrives:
+	retryLock, acquired, err := orders.AcquireOrderLock(ctx, db, rdb, orderID, userID, userEmail, "USD")
+	if err != nil {
+		t.Fatalf("Retry acquire lock failed: %v", err)
+	}
+	if !acquired {
+		ttl, _ := rdb.TTL(ctx, "lock:checkout:"+orderID).Result()
+		var count int
+		_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM orders WHERE order_id = $1", orderID).Scan(&count)
+		t.Fatalf("Retry should have acquired lock after dead owner lock expired: redisTTL=%v, dbRows=%d", ttl, count)
+	}
+	defer retryLock.Release(ctx)
+
+	// Retry persists confirmed order
+	retryOrderRec := &orders.OrderRecord{
+		OrderID:       orderID,
+		UserCurrency:  "USD",
+		TrackingID:    "TRK-DEAD-RETRY",
+		ShipCostUnits: 5,
+		Street:        "200 Dead Recovered Rd",
+		City:          "San Francisco",
+		State:         "CA",
+		Country:       "USA",
+		ZipCode:       94105,
+		Items: []orders.OrderItemRecord{
+			{ProductID: testProductID, Quantity: 1, CostUnits: 10, CostNanos: 0},
+		},
+	}
+	isNew, err := orders.PersistOrder(ctx, db, retryOrderRec, 15, 0, userID, userEmail)
+	if err != nil || !isNew {
+		t.Fatalf("Retry PersistOrder failed: %v, isNew=%v", err, isNew)
+	}
+
+	confirmed, err := orders.GetOrderFromDB(ctx, db, orderID)
+	if err != nil || confirmed == nil || confirmed.Status != "CONFIRMED" {
+		t.Fatalf("Failed to query confirmed order after retry: %v", err)
+	}
+
+	t.Logf("SUCCESS: Dead owner lock and stale PENDING row expired, retry successfully acquired lock and persisted order.")
+}
+
+// TestPendingRowNotReturnedDirectlyWaitsForConfirmedOrAborts verifies that a PENDING placeholder row
+// is never returned as a completed order; callers either wait for CONFIRMED or return codes.Aborted on timeout.
+func TestPendingRowNotReturnedDirectlyWaitsForConfirmedOrAborts(t *testing.T) {
+	db := getRealPostgresDB(t)
+	defer db.Close()
+
+	rdb, cleanupRedis := setupTestRedis(t)
+	defer cleanupRedis()
+
+	ctx := context.Background()
+
+	testProductID := fmt.Sprintf("prod-pending-test-%d", time.Now().UnixNano())
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO products (id, name, price_usd_units, price_usd_nanos)
+		VALUES ($1, 'Pending Placeholder Item', 10, 0) ON CONFLICT (id) DO NOTHING`, testProductID)
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO inventory (product_id, total_stock, updated_at)
+		VALUES ($1, 10, NOW())
+		ON CONFLICT (product_id) DO UPDATE SET total_stock = 10, updated_at = NOW()`, testProductID)
+
+	userID := fmt.Sprintf("user-pending-%d", time.Now().UnixNano())
+	userEmail := "pending-check@example.com"
+
+	// ── PART A & B: PENDING row is NOT returned early, caller waits for CONFIRMED ──
+	key1 := fmt.Sprintf("pending-wait-token-%d", time.Now().UnixNano())
+	orderID1 := orders.DeriveOrderID(key1)
+
+	// Insert PENDING placeholder row (zero costs, empty tracking, empty street)
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO orders (
+			order_id, user_id, email, user_currency,
+			total_cost_units, total_cost_nanos,
+			shipping_tracking_id, shipping_cost_units, shipping_cost_nanos,
+			street_address, city, state, country, zip_code, status, created_at
+		) VALUES ($1, $2, $3, 'USD', 0, 0, '', 0, 0, '', '', '', '', 0, 'PENDING', NOW())`,
+		orderID1, userID, userEmail)
+	if err != nil {
+		t.Fatalf("Failed to insert pending row: %v", err)
+	}
+
+	// 1. Assert early lookup does NOT return the pending placeholder row
+	earlyRec, err := orders.GetOrderFromDB(ctx, db, orderID1)
+	if err == nil || earlyRec != nil {
+		t.Fatalf("VIOLATION: GetOrderFromDB returned a PENDING placeholder row! Rec: %+v", earlyRec)
+	}
+
+	// 2. Caller waiting for confirmed order
+	var waitedRec *orders.OrderRecord
+	var waitErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		waitedRec, waitErr = orders.WaitForConfirmedOrder(ctx, db, rdb, orderID1, 2*time.Second)
+	}()
+
+	// Simulate winner confirming the order after 150ms
+	time.Sleep(150 * time.Millisecond)
+	orderRec1 := &orders.OrderRecord{
+		OrderID:       orderID1,
+		UserCurrency:  "USD",
+		TrackingID:    "TRK-CONFIRMED-999",
+		ShipCostUnits: 5,
+		Street:        "999 Confirmed Way",
+		City:          "San Francisco",
+		State:         "CA",
+		Country:       "USA",
+		ZipCode:       94105,
+		Items: []orders.OrderItemRecord{
+			{ProductID: testProductID, Quantity: 1, CostUnits: 10, CostNanos: 0},
+		},
+	}
+	isNew, err := orders.PersistOrder(ctx, db, orderRec1, 15, 0, userID, userEmail)
+	if err != nil || !isNew {
+		t.Fatalf("PersistOrder to confirm pending row failed: %v, isNew=%v", err, isNew)
+	}
+
+	wg.Wait()
+
+	if waitErr != nil || waitedRec == nil {
+		t.Fatalf("WaitForConfirmedOrder failed after order was confirmed: %v", waitErr)
+	}
+	if waitedRec.Status != "CONFIRMED" || waitedRec.TrackingID != "TRK-CONFIRMED-999" {
+		t.Fatalf("Returned order is not properly confirmed: %+v", waitedRec)
+	}
+	t.Logf("SUCCESS: Early lookup ignored PENDING row, caller waited and received completed CONFIRMED order.")
+
+	// ── PART C: PENDING row that never confirms returns codes.Aborted on timeout ──
+	key2 := fmt.Sprintf("pending-timeout-token-%d", time.Now().UnixNano())
+	orderID2 := orders.DeriveOrderID(key2)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO orders (
+			order_id, user_id, email, user_currency,
+			total_cost_units, total_cost_nanos,
+			shipping_tracking_id, shipping_cost_units, shipping_cost_nanos,
+			street_address, city, state, country, zip_code, status, created_at
+		) VALUES ($1, $2, $3, 'USD', 0, 0, '', 0, 0, '', '', '', '', 0, 'PENDING', NOW())`,
+		orderID2, userID, userEmail)
+	if err != nil {
+		t.Fatalf("Failed to insert pending row 2: %v", err)
+	}
+
+	timeoutRec, timeoutErr := orders.WaitForConfirmedOrder(ctx, db, rdb, orderID2, 200*time.Millisecond)
+	if timeoutRec != nil {
+		t.Fatalf("VIOLATION: Expected nil order on timeout, got: %+v", timeoutRec)
+	}
+	if timeoutErr == nil {
+		t.Fatalf("VIOLATION: Expected error on timeout, got nil")
+	}
+	if st, ok := status.FromError(timeoutErr); !ok || st.Code() != codes.Aborted {
+		t.Fatalf("Expected codes.Aborted on timeout, got code %v (err: %v)", st.Code(), timeoutErr)
+	}
+	t.Logf("SUCCESS: Unconfirmed PENDING row timed out and returned codes.Aborted as required.")
+}

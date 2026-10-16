@@ -382,13 +382,11 @@ jobs:
             --user "$ADMIN_USER" \
             --password "$ADMIN_PASS"
 
-          # Retrieve client secret from AWS Secrets Manager for boutique-frontend (separate from Keycloak admin credentials)
-          CLIENT_SECRET=$(aws secretsmanager get-secret-value --secret-id "${CLUSTER_NAME}/keycloak/boutique-frontend" --query SecretString --output text 2>/dev/null | jq -r '.client_secret // empty' 2>/dev/null || echo "")
+          # Retrieve client secret from dedicated AWS Secrets Manager secret for boutique-frontend (separate from Keycloak admin credentials)
+          CLIENT_SECRET=$(aws secretsmanager get-secret-value --secret-id "${CLUSTER_NAME}/keycloak/boutique-frontend" --query SecretString --output text | jq -r '.client_secret // empty')
           if [ -z "$CLIENT_SECRET" ]; then
-            CLIENT_SECRET=$(kubectl get secret keycloak-credentials -n online-boutique -o jsonpath='{.data.client-secret}' 2>/dev/null | base64 -d || echo "")
-          fi
-          if [ -z "$CLIENT_SECRET" ]; then
-            CLIENT_SECRET="boutique-frontend-secret-key"
+            echo "ERROR: boutique-frontend client secret is missing or empty in Secrets Manager at '${CLUSTER_NAME}/keycloak/boutique-frontend'!"
+            exit 1
           fi
 
           echo "Checking if online-boutique realm exists..."
