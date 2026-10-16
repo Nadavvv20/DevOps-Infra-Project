@@ -312,6 +312,7 @@ jobs:
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/redis-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/sqs-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/keycloak-external-secret.yaml | kubectl apply -f -
+            sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/frontend-keycloak-external-secret.yaml | kubectl apply -f -
           fi
 
       - name: Install Keycloak (Identity Provider)
@@ -381,8 +382,11 @@ jobs:
             --user "$ADMIN_USER" \
             --password "$ADMIN_PASS"
 
-          # Retrieve client secret from secret / Secrets Manager
-          CLIENT_SECRET=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_CLIENT_SECRET}' 2>/dev/null | base64 -d || echo "")
+          # Retrieve client secret from AWS Secrets Manager for boutique-frontend (separate from Keycloak admin credentials)
+          CLIENT_SECRET=$(aws secretsmanager get-secret-value --secret-id "${CLUSTER_NAME}/keycloak/boutique-frontend" --query SecretString --output text 2>/dev/null | jq -r '.client_secret // empty' 2>/dev/null || echo "")
+          if [ -z "$CLIENT_SECRET" ]; then
+            CLIENT_SECRET=$(kubectl get secret keycloak-credentials -n online-boutique -o jsonpath='{.data.client-secret}' 2>/dev/null | base64 -d || echo "")
+          fi
           if [ -z "$CLIENT_SECRET" ]; then
             CLIENT_SECRET="boutique-frontend-secret-key"
           fi
@@ -420,7 +424,7 @@ jobs:
 
           echo "Applying sslRequired=${EXPECTED_SSL} to both master and online-boutique realms..."
           kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired="${EXPECTED_SSL}"
-          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired="${EXPECTED_SSL}"
+          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired="${EXPECTED_SSL}" -s registrationAllowed=true
 
           echo "Verifying sslRequired configuration for both realms..."
           MASTER_SSL=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/master --fields sslRequired --format csv --noquotes)

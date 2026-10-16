@@ -141,6 +141,7 @@ module "iam_roles" {
     module.elasticache.secret_arn,
     module.sqs.secret_arn,
     module.secrets_manager.keycloak_secret_arn,
+    module.secrets_manager.keycloak_client_secret_arn,
   ]
 
   order_events_topic_arn = module.sqs.order_events_topic_arn

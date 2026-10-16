@@ -30,3 +30,27 @@ output "keycloak_secret_arn" {
   description = "ARN of the Keycloak admin credentials secret."
   value       = aws_secretsmanager_secret.keycloak_credentials.arn
 }
+
+resource "random_password" "keycloak_client_secret" {
+  length  = 32
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "keycloak_client_secret" {
+  name                    = "${var.cluster_name}/keycloak/boutique-frontend"
+  description             = "Keycloak boutique-frontend client secret (separate from admin credentials)"
+  recovery_window_in_days = var.secret_recovery_window
+  tags                    = var.tags
+}
+
+resource "aws_secretsmanager_secret_version" "keycloak_client_secret" {
+  secret_id = aws_secretsmanager_secret.keycloak_client_secret.id
+  secret_string = jsonencode({
+    client_secret = random_password.keycloak_client_secret.result
+  })
+}
+
+output "keycloak_client_secret_arn" {
+  description = "ARN of the Keycloak boutique-frontend client secret."
+  value       = aws_secretsmanager_secret.keycloak_client_secret.arn
+}

@@ -1,6 +1,7 @@
 ﻿{
   "realm": "online-boutique",
   "enabled": true,
+  "registrationAllowed": true,
   "sslRequired": "NONE",
   "roles": {
     "realm": [
