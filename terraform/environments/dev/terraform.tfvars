@@ -16,5 +16,5 @@ access_entries = {
   }
 }
 
-enable_ecr = true
+enable_ecr = false
 
