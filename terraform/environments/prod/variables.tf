@@ -30,3 +30,9 @@ variable "access_entries" {
   description = "Map of access entries to grant cluster access to IAM principals (e.g. AWS Console users)"
 }
 
+variable "secret_recovery_window" {
+  type        = number
+  default     = 30
+  description = "Days before Secrets Manager permanently deletes a secret. Default 30 for prod."
+}
+

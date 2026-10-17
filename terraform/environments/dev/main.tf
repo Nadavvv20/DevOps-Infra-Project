@@ -81,7 +81,7 @@ module "rds_aurora" {
   instance_count             = 1
   deletion_protection        = false
   skip_final_snapshot        = true
-  secret_recovery_window     = 0
+  secret_recovery_window     = var.secret_recovery_window
   tags                       = local.common_tags
 }
 
@@ -94,6 +94,7 @@ module "elasticache" {
   eks_node_security_group_id = module.eks.node_security_group_id
   node_type                  = "cache.t4g.small"
   num_cache_clusters         = 1
+  secret_recovery_window     = var.secret_recovery_window
   tags                       = local.common_tags
 }
 
@@ -103,7 +104,7 @@ module "sqs" {
   source = "../../modules/sqs"
 
   cluster_name           = local.cluster_name
-  secret_recovery_window = 0 # dev: allow immediate re-creation
+  secret_recovery_window = var.secret_recovery_window
   tags                   = local.common_tags
 }
 
@@ -113,7 +114,7 @@ module "secrets_manager" {
   source = "../../modules/secrets-manager"
 
   cluster_name           = local.cluster_name
-  secret_recovery_window = 0
+  secret_recovery_window = var.secret_recovery_window
   tags                   = local.common_tags
 }
 

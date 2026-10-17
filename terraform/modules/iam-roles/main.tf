@@ -82,7 +82,8 @@ resource "aws_iam_role" "checkoutservice_sqs" {
     }]
   })
 
-  tags = var.tags
+  force_detach_policies = true
+  tags                  = var.tags
 }
 
 resource "aws_iam_role_policy" "checkoutservice_sqs" {
@@ -119,7 +120,8 @@ resource "aws_iam_role" "emailservice_sqs" {
     }]
   })
 
-  tags = var.tags
+  force_detach_policies = true
+  tags                  = var.tags
 }
 
 resource "aws_iam_role_policy" "emailservice_sqs" {
@@ -161,7 +163,8 @@ resource "aws_iam_role" "shippingservice_sqs" {
     }]
   })
 
-  tags = var.tags
+  force_detach_policies = true
+  tags                  = var.tags
 }
 
 resource "aws_iam_role_policy" "shippingservice_sqs" {
@@ -203,7 +206,8 @@ resource "aws_iam_role" "yace_sqs_exporter" {
     }]
   })
 
-  tags = var.tags
+  force_detach_policies = true
+  tags                  = var.tags
 }
 
 resource "aws_iam_role_policy" "yace_sqs_exporter" {
