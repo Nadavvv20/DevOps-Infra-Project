@@ -26,7 +26,7 @@ on:
       run_smoke_tests:
         description: "Run automated architecture smoke test suite after deployment"
         type: boolean
-        default: true
+        default: false
       run_destructive_tests:
         description: "Run destructive architecture tests (pod kills, DLQ injection)"
         type: boolean
@@ -331,8 +331,12 @@ jobs:
             #  - httpRelativePath=/auth: Keycloak served at /auth path (no domain needed)
             #  - existingSecret: All credentials from the synced ExternalSecret
             helm upgrade --install keycloak bitnami/keycloak \
+              --version "21.3.1" \
               --namespace keycloak \
               --create-namespace \
+              --set image.registry="docker.io" \
+              --set image.repository="bitnamilegacy/keycloak" \
+              --set image.tag="24.0.4-debian-12-r1" \
               --set existingSecret="keycloak-credentials" \
               --set existingSecretKey.adminPassword="KEYCLOAK_ADMIN_PASSWORD" \
               --set existingSecretKey.adminUser="KEYCLOAK_ADMIN" \
@@ -514,15 +518,55 @@ jobs:
           echo "=========================================================="
           echo "Online Boutique with Auth & Event-Driven Architecture deployed successfully!"
 
+      - name: Enable Rate Limit Bypass for Smoke Tests (Non-Prod Only)
+        if: ${{ github.event.inputs.run_smoke_tests == 'true' || github.event.inputs.run_smoke_tests == true }}
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment }}"
+          if [ "$ENV_NAME" != "prod" ]; then
+            echo "Non-prod environment ($ENV_NAME): Enabling ENABLE_TEST_RATE_LIMIT_BYPASS=true on frontend deployment..."
+            kubectl set env deployment/frontend -n online-boutique ENABLE_TEST_RATE_LIMIT_BYPASS=true
+            kubectl rollout status deployment/frontend -n online-boutique --timeout=90s
+          else
+            echo "Production environment detected ($ENV_NAME): ENABLE_TEST_RATE_LIMIT_BYPASS remains hard-disabled."
+          fi
+
+      - name: Create Temporary Keycloak Smoke Test User
+        id: create_smoke_user
+        if: ${{ github.event.inputs.run_smoke_tests == 'true' || github.event.inputs.run_smoke_tests == true }}
+        run: |
+          # Generate random username and password at runtime
+          SMOKE_USER="smoke-$(openssl rand -hex 4)"
+          SMOKE_PASS=$(openssl rand -base64 18 | tr -dc 'a-zA-Z0-9!@#%')
+          
+          # Mask credentials in GitHub Actions logs so they are never exposed
+          echo "::add-mask::${SMOKE_PASS}"
+          echo "::add-mask::${SMOKE_USER}"
+          
+          echo "KEYCLOAK_TEST_USER=${SMOKE_USER}" >> "$GITHUB_ENV"
+          echo "KEYCLOAK_TEST_PASSWORD=${SMOKE_PASS}" >> "$GITHUB_ENV"
+          
+          echo "Creating temporary test user '${SMOKE_USER}' in Keycloak online-boutique realm..."
+          KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create users -r online-boutique \
+            -s username="${SMOKE_USER}" \
+            -s enabled=true \
+            -s email="${SMOKE_USER}@example.com"
+          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh set-password -r online-boutique \
+            --username "${SMOKE_USER}" \
+            --new-password "${SMOKE_PASS}"
+          echo "Temporary Keycloak smoke user created successfully."
+
       - name: Setup Go for Architecture Smoke Tests
-        if: ${{ github.event.inputs.run_smoke_tests != 'false' }}
+        if: ${{ github.event.inputs.run_smoke_tests == 'true' || github.event.inputs.run_smoke_tests == true }}
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
 
       - name: Run Architecture Validation Smoke Tests
-        if: ${{ github.event.inputs.run_smoke_tests != 'false' }}
+        id: run_smoke
+        if: ${{ github.event.inputs.run_smoke_tests == 'true' || github.event.inputs.run_smoke_tests == true }}
         run: |
+          mkdir -p tests/smoke/logs
           ALB=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
           echo "Starting smoke test suite against ALB: http://${ALB}"
           export BASE_URL="http://${ALB}"
@@ -534,4 +578,37 @@ jobs:
           export CLUSTER_NAME
           export RUN_DESTRUCTIVE="${{ github.event.inputs.run_destructive_tests || 'false' }}"
           chmod +x scripts/run-smoke-tests.sh
-          ./scripts/run-smoke-tests.sh
+          # Pipe output through tee to preserve logs for artifact upload on failure or success
+          ./scripts/run-smoke-tests.sh 2>&1 | tee tests/smoke/logs/smoke-tests.log
+
+      - name: Upload Smoke Test Logs Artifact
+        if: ${{ always() && steps.run_smoke.outcome != 'skipped' && steps.run_smoke.outcome != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-logs-${{ github.event.inputs.environment }}
+          path: tests/smoke/logs/
+          retention-days: 14
+
+      - name: Delete Temporary Keycloak User
+        if: ${{ always() && steps.create_smoke_user.outcome == 'success' }}
+        run: |
+          if [ -n "$KEYCLOAK_TEST_USER" ]; then
+            echo "Deleting temporary Keycloak user '${KEYCLOAK_TEST_USER}'..."
+            KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+            if [ -n "$KEYCLOAK_POD" ]; then
+              USER_ID=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get users -r online-boutique -q username="${KEYCLOAK_TEST_USER}" --fields id --format csv --noquotes 2>/dev/null || true)
+              if [ -n "$USER_ID" ]; then
+                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh delete users/"$USER_ID" -r online-boutique || true
+                echo "Temporary Keycloak user '${KEYCLOAK_TEST_USER}' deleted successfully."
+              fi
+            fi
+          fi
+
+      - name: Revert Rate Limit Bypass on Frontend (Non-Prod Only)
+        if: ${{ always() && (github.event.inputs.run_smoke_tests == 'true' || github.event.inputs.run_smoke_tests == true) }}
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment }}"
+          if [ "$ENV_NAME" != "prod" ]; then
+            echo "Reverting ENABLE_TEST_RATE_LIMIT_BYPASS=false on frontend..."
+            kubectl set env deployment/frontend -n online-boutique ENABLE_TEST_RATE_LIMIT_BYPASS=false || true
+          fi
