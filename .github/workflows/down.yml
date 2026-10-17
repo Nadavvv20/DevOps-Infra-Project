@@ -85,9 +85,12 @@ jobs:
       - name: Delete Kubernetes LoadBalancers & Ingresses (Prevent AWS VPC ENI leaks)
         if: steps.kubeconfig.outputs.cluster_found == 'true'
         run: |
-          echo "Removing Application Ingress and LoadBalancers to release AWS ALBs / NLBs..."
+          echo "Deleting all Ingress resources across all namespaces..."
           kubectl delete ingress --all --all-namespaces --timeout=3m || true
-          kubectl delete svc -l "app.kubernetes.io/name=ingress-nginx" -n ingress-nginx --timeout=3m || true
+
+          echo "Deleting all Services of type LoadBalancer across all namespaces..."
+          kubectl delete svc --all-namespaces --field-selector spec.type=LoadBalancer --timeout=3m || true
+          kubectl delete svc -n ingress-nginx ingress-nginx-controller --timeout=3m || true
           
           echo "Uninstalling Helm releases..."
           helm uninstall online-boutique -n online-boutique || true
@@ -97,7 +100,16 @@ jobs:
           helm uninstall external-secrets -n external-secrets || true
           helm uninstall ingress-nginx -n ingress-nginx || true
 
-          echo "Waiting 30 seconds for AWS cloud providers to de-provision ENIs..."
+          echo "Waiting for AWS cloud load balancers and ENIs to be released..."
+          for i in $(seq 1 18); do
+            REMAINING_LBS=$(kubectl get svc --all-namespaces --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null || true)
+            if [ -z "$REMAINING_LBS" ]; then
+              echo "All LoadBalancer services successfully terminated."
+              break
+            fi
+            echo "Waiting for LoadBalancer services to release AWS ALBs/NLBs (attempt $i/18)..."
+            sleep 10
+          done
           sleep 30
 
   destroy-infra:
@@ -145,4 +157,14 @@ jobs:
             echo "Full destroy: Deleting ALL infrastructure including VPC and subnets..."
             terraform destroy -auto-approve
           fi
+
+      - name: Purge Pending-Deletion Secrets Manager Secrets
+        if: always()
+        run: |
+          CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+          chmod +x ../../scripts/purge-deleted-secrets.sh
+          ../../scripts/purge-deleted-secrets.sh \
+            --region "${{ github.event.inputs.aws_region }}" \
+            --prefix "${CLUSTER_NAME}" \
+            --yes
 
