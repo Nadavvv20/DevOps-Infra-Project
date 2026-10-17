@@ -27,11 +27,15 @@ export AWS_REGION="${AWS_REGION:-il-central-1}"
 export CLUSTER_NAME="${CLUSTER_NAME:-online-boutique-dev}"
 export RUN_DESTRUCTIVE="${RUN_DESTRUCTIVE:-false}"
 
+export KEYCLOAK_TEST_USER="${KEYCLOAK_TEST_USER:-testuser}"
+export KEYCLOAK_TEST_PASSWORD="${KEYCLOAK_TEST_PASSWORD:-TestPass123!}"
+
 echo "Target Configuration:"
 echo "  Base URL:        ${BASE_URL}"
 echo "  AWS Region:      ${AWS_REGION}"
 echo "  Cluster Name:    ${CLUSTER_NAME}"
 echo "  Run Destructive: ${RUN_DESTRUCTIVE}"
+echo "  Keycloak User:   ${KEYCLOAK_TEST_USER}"
 echo ""
 
 cd "${REPO_ROOT}/tests/smoke"
@@ -54,13 +58,15 @@ elif command -v docker >/dev/null 2>&1; then
     -e BASE_URL="${BASE_URL}" \
     -e AWS_REGION="${AWS_REGION}" \
     -e CLUSTER_NAME="${CLUSTER_NAME}" \
+    -e KEYCLOAK_TEST_USER="${KEYCLOAK_TEST_USER}" \
+    -e KEYCLOAK_TEST_PASSWORD="${KEYCLOAK_TEST_PASSWORD}" \
     -v "${REPO_ROOT}/tests/smoke:/workspace" \
     -w /workspace \
     golang:1.23-alpine \
     go test -v -timeout 15m -run "${TEST_PATTERN}" ./...
 else
   echo "Executing via WSL Go..."
-  wsl -d Ubuntu -- bash -c "cd '${REPO_ROOT}/tests/smoke' && ~/go/bin/go test -v -timeout 15m -run '${TEST_PATTERN}' ./..."
+  wsl -d Ubuntu -- bash -c "cd '${REPO_ROOT}/tests/smoke' && KEYCLOAK_TEST_USER='${KEYCLOAK_TEST_USER}' KEYCLOAK_TEST_PASSWORD='${KEYCLOAK_TEST_PASSWORD}' ~/go/bin/go test -v -timeout 15m -run '${TEST_PATTERN}' ./..."
 fi
 
 echo ""

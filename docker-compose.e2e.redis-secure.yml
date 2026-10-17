@@ -1,0 +1,73 @@
+services:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Secure Redis with TLS 1.2+ and AUTH (requirepass)
+  # ─────────────────────────────────────────────────────────────────────────────
+  redis:
+    command: >
+      redis-server
+      --requirepass boutique_redis_pass
+      --port 0
+      --tls-port 6379
+      --tls-cert-file /certs/redis.crt
+      --tls-key-file /certs/redis.key
+      --tls-ca-cert-file /certs/ca.crt
+      --tls-auth-clients no
+    volumes:
+      - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a boutique_redis_pass --tls --cacert /certs/ca.crt ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Services using Redis configured with TLS + AUTH
+  # ─────────────────────────────────────────────────────────────────────────────
+  cartservice:
+    environment:
+      # StackExchange.Redis configuration format with password and TLS
+      REDIS_ADDR: "redis:6379,password=boutique_redis_pass,ssl=true,sslProtocols=Tls12,checkCertificateRevocation=false,abortConnect=false"
+    volumes:
+      - ./certs/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  frontend:
+    environment:
+      REDIS_AUTH: "boutique_redis_pass"
+      REDIS_PASSWORD: "boutique_redis_pass"
+      REDIS_TLS: "true"
+      REDIS_TLS_INSECURE: "true"
+
+  inventoryservice:
+    environment:
+      REDIS_AUTH: "boutique_redis_pass"
+      REDIS_PASSWORD: "boutique_redis_pass"
+      REDIS_TLS: "true"
+      REDIS_TLS_INSECURE: "true"
+
+  checkoutservice:
+    environment:
+      REDIS_AUTH: "boutique_redis_pass"
+      REDIS_PASSWORD: "boutique_redis_pass"
+      REDIS_TLS: "true"
+      REDIS_TLS_INSECURE: "true"
+
+  shippingservice:
+    environment:
+      REDIS_AUTH: "boutique_redis_pass"
+      REDIS_PASSWORD: "boutique_redis_pass"
+      REDIS_TLS: "true"
+      REDIS_TLS_INSECURE: "true"
+
+  emailservice:
+    environment:
+      REDIS_AUTH: "boutique_redis_pass"
+      REDIS_PASSWORD: "boutique_redis_pass"
+      REDIS_TLS: "true"
+      REDIS_TLS_INSECURE: "true"
+
+  productcatalogservice:
+    environment:
+      REDIS_AUTH: "boutique_redis_pass"
+      REDIS_PASSWORD: "boutique_redis_pass"
+      REDIS_TLS: "true"
+      REDIS_TLS_INSECURE: "true"

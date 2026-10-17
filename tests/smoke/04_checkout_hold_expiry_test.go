@@ -1,6 +1,7 @@
 package smoke
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,11 @@ func Test04_CheckoutAfterHoldExpiry(t *testing.T) {
 
 	client := createHTTPClient()
 
+	// Authenticate via Keycloak
+	if err := loginUser(t, client, baseURL); err != nil {
+		t.Fatalf("Failed to authenticate user for checkout test: %v", err)
+	}
+
 	// Step 1: Add item to cart
 	formData := url.Values{
 		"product_id": {testProductID},
@@ -36,14 +42,23 @@ func Test04_CheckoutAfterHoldExpiry(t *testing.T) {
 
 	// Step 2: Manually remove or expire the hold from Redis to simulate hold expiration
 	if isClusterAccessible() {
-		t.Log("Simulating hold expiration by removing active hold from Redis...")
+		t.Log("Simulating hold expiration by removing active hold from Redis via kubectl...")
 		_, _ = execInPod("online-boutique", "app=inventoryservice",
 			"sh", "-c", fmt.Sprintf("redis-cli -h $REDIS_ADDR -p 6379 EVAL \""+
 				"local keys = redis.call('KEYS', 'hold:{%s}:*') "+
 				"for _, k in ipairs(keys) do redis.call('DEL', k) end "+
-				"local exp = redis.call('ZRANGE', 'holds:expiry', 0, -1) "+
-				"for _, e in ipairs(exp) do if string.find(e, '%s') then redis.call('ZREM', 'holds:expiry', e) end end"+
+				"redis.call('DEL', 'holds:expiry:{%s}') "+
 				"\" 0", testProductID, testProductID))
+	} else if rdb := getRedisClient(); rdb != nil {
+		t.Log("Simulating hold expiration by removing active hold from Redis via direct client...")
+		ctx := context.Background()
+		delScript := fmt.Sprintf(`
+			local keys = redis.call('KEYS', 'hold:{%s}:*')
+			for _, k in ipairs(keys) do redis.call('DEL', k) end
+			redis.call('DEL', 'holds:expiry:{%s}')
+		`, testProductID, testProductID)
+		_ = rdb.Eval(ctx, delScript, nil).Err()
+		rdb.Close()
 	}
 
 	// Step 3: Attempt to complete checkout

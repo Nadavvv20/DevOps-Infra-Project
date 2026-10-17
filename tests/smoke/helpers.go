@@ -3,16 +3,157 @@ package smoke
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
+
+func getRedisClient() *redis.Client {
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		addr = "redis:6379"
+	}
+	password := os.Getenv("REDIS_PASSWORD")
+	if password == "" {
+		password = os.Getenv("REDIS_AUTH")
+	}
+	var tlsConfig *tls.Config
+	if strings.ToLower(os.Getenv("REDIS_TLS")) == "true" {
+		insecure := strings.ToLower(os.Getenv("REDIS_TLS_INSECURE")) == "true"
+		tlsConfig = &tls.Config{InsecureSkipVerify: insecure}
+	}
+	rdb := redis.NewClient(&redis.Options{
+		Addr:      addr,
+		Password:  password,
+		TLSConfig: tlsConfig,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		rdb.Close()
+		return nil
+	}
+	return rdb
+}
+
+// loginUser executes the complete Keycloak OAuth2 / OIDC authorization code flow
+// establishing the authenticated session cookie on the client.
+func loginUser(t *testing.T, client *http.Client, baseURL string) error {
+	username := os.Getenv("KEYCLOAK_TEST_USER")
+	if username == "" {
+		username = "testuser"
+	}
+	password := os.Getenv("KEYCLOAK_TEST_PASSWORD")
+	if password == "" {
+		password = "TestPass123!"
+	}
+
+	noRedirectClient := &http.Client{
+		Jar:     client.Jar,
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// 1. Initiate login
+	loginInitResp, err := noRedirectClient.Get(baseURL + "/login?redirect=/cart")
+	if err != nil {
+		return fmt.Errorf("failed to initiate login: %w", err)
+	}
+	defer loginInitResp.Body.Close()
+
+	keycloakAuthURL := loginInitResp.Header.Get("Location")
+	if keycloakAuthURL == "" {
+		return fmt.Errorf("no Location header in /login response (status: %d)", loginInitResp.StatusCode)
+	}
+
+	// 2. Fetch login page
+	loginPageResp, err := client.Get(keycloakAuthURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch Keycloak login page at %s: %w", keycloakAuthURL, err)
+	}
+	defer loginPageResp.Body.Close()
+
+	pageBytes, _ := io.ReadAll(loginPageResp.Body)
+	pageStr := string(pageBytes)
+
+	re := regexp.MustCompile(`action="([^"]+)"`)
+	matches := re.FindStringSubmatch(pageStr)
+	if len(matches) < 2 {
+		return fmt.Errorf("login form action URL not found in Keycloak HTML response: %s", pageStr)
+	}
+	actionURL := strings.ReplaceAll(matches[1], "&amp;", "&")
+
+	// 3. Submit credentials
+	formData := url.Values{
+		"username": {username},
+		"password": {password},
+	}
+	authResp, err := noRedirectClient.PostForm(actionURL, formData)
+	if err != nil {
+		return fmt.Errorf("failed to submit credentials to Keycloak: %w", err)
+	}
+	defer authResp.Body.Close()
+
+	if authResp.StatusCode != http.StatusFound && authResp.StatusCode != http.StatusSeeOther {
+		body, _ := io.ReadAll(authResp.Body)
+		return fmt.Errorf("Keycloak credentials submission failed (status %d): %s", authResp.StatusCode, string(body))
+	}
+
+	callbackURL := authResp.Header.Get("Location")
+	if callbackURL == "" {
+		return fmt.Errorf("no Location header after Keycloak credentials submission")
+	}
+
+	// 4. Follow callback
+	callbackResp, err := client.Get(callbackURL)
+	if err != nil {
+		return fmt.Errorf("failed to complete callback exchange: %w", err)
+	}
+	defer callbackResp.Body.Close()
+
+	// Verify session cookie
+	u, _ := url.Parse(baseURL)
+	cookies := client.Jar.Cookies(u)
+	hasAuth := false
+	for _, c := range cookies {
+		if c.Name == "boutique_auth_session" && c.Value != "" {
+			hasAuth = true
+			break
+		}
+	}
+	if !hasAuth {
+		return fmt.Errorf("boutique_auth_session cookie not found after login callback")
+	}
+
+	// 5. Empty any leftover items in user's cart so tests start with a clean slate
+	emptyCart(client, baseURL)
+
+	t.Logf("User %s authenticated successfully via Keycloak OIDC flow", username)
+	return nil
+}
+
+func emptyCart(client *http.Client, baseURL string) {
+	req, _ := http.NewRequest("POST", baseURL+"/cart/empty", nil)
+	resp, err := client.Do(req)
+	if err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+}
 
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {

@@ -32,6 +32,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: up-${{ inputs.environment }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   id-token: write
@@ -46,11 +50,13 @@ jobs:
     if: ${{ !inputs.skip_infra }}
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
+    timeout-minutes: 60
     permissions:
       id-token: write
       contents: read
     outputs:
       cluster_name: ${{ steps.tf_outputs.outputs.cluster_name }}
+      aurora_endpoint: ${{ steps.tf_outputs.outputs.aurora_endpoint }}
     defaults:
       run:
         working-directory: terraform/environments/${{ github.event.inputs.environment }}
@@ -58,12 +64,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Debug OIDC Token Claims
-        run: |
-          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
-          echo "=== Decoded GitHub OIDC Claims ==="
-          echo "$TOKEN" | jq -R 'split(".") | .[1] | @base64d | fromjson'
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -108,12 +108,22 @@ jobs:
           echo "Using cluster name: ${CLUSTER_NAME}"
           echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
 
+          AURORA_ENDPOINT=""
+          if RAW_AURORA=$(terraform output -raw aurora_endpoint 2>/dev/null) && [ -n "$RAW_AURORA" ] && [[ "$RAW_AURORA" != *"Warning"* ]]; then
+            AURORA_ENDPOINT="$RAW_AURORA"
+          fi
+          echo "Using Aurora endpoint: ${AURORA_ENDPOINT}"
+          echo "aurora_endpoint=${AURORA_ENDPOINT}" >> "$GITHUB_OUTPUT"
+
   apps-up:
     name: Deploy Core Controllers & Online Boutique (Helm)
     needs: infra-up
     if: ${{ always() && (needs.infra-up.result == 'success' || needs.infra-up.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
+    timeout-minutes: 60
+    env:
+      CLUSTER_NAME: ${{ needs.infra-up.outputs.cluster_name != '' && needs.infra-up.outputs.cluster_name || format('online-boutique-{0}', github.event.inputs.environment) }}
 
     steps:
       - name: Checkout Repository
@@ -136,10 +146,6 @@ jobs:
 
       - name: Update Kubeconfig
         run: |
-          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          fi
           echo "Updating kubeconfig for cluster: ${CLUSTER_NAME}"
           aws eks update-kubeconfig \
             --name "$CLUSTER_NAME" \
@@ -147,25 +153,38 @@ jobs:
 
       - name: Wait for EKS Control Plane & Nodes
         run: |
-          echo "Waiting for Kubernetes API..."
-          until kubectl get nodes >/dev/null 2>&1; do
-            echo "Waiting for node communication..."
+          echo "Waiting for at least one Kubernetes node to be Ready (max 10 minutes)..."
+          READY_NODE=false
+          for i in $(seq 1 60); do
+            if kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+              READY_NODE=true
+              echo "Found Ready Kubernetes node(s) on attempt $i/60."
+              break
+            fi
+            echo "Waiting for a Ready node... ($i/60)"
             sleep 10
           done
+
+          if [ "$READY_NODE" != "true" ]; then
+            echo "ERROR: Timed out waiting for at least one Ready node after 10 minutes."
+            kubectl get nodes -o wide 2>/dev/null || true
+            exit 1
+          fi
+
           echo "Kubernetes nodes status:"
           kubectl get nodes -o wide
 
       - name: Install Karpenter Autoscaler (CRDs, Controller, NodePool)
         run: |
-          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          fi
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           KARPENTER_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/karpenter-controller-${CLUSTER_NAME}"
 
           echo "Authenticating Helm with Public ECR (with anonymous fallback)..."
-          aws ecr-public get-login-password --region us-east-1 2>/dev/null | helm registry login --username AWS --password-stdin public.ecr.aws 2>/dev/null || true
+          if aws ecr-public get-login-password --region us-east-1 2>/dev/null | helm registry login --username AWS --password-stdin public.ecr.aws 2>/dev/null; then
+            echo "Successfully authenticated with Public ECR."
+          else
+            echo "Public ECR login skipped/failed; proceeding with anonymous pull."
+          fi
 
           if helm status karpenter -n kube-system >/dev/null 2>&1; then
             echo "Karpenter is already installed."
@@ -205,6 +224,7 @@ jobs:
             helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
             helm repo update
             helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+              --version "4.11.3" \
               --namespace ingress-nginx \
               --create-namespace \
               --set controller.service.type=LoadBalancer \
@@ -213,10 +233,6 @@ jobs:
 
       - name: Install External Secrets Operator (ESO)
         run: |
-          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          fi
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ESO_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-external-secrets"
 
@@ -233,6 +249,7 @@ jobs:
             helm repo add external-secrets https://charts.external-secrets.io
             helm repo update
             helm upgrade --install external-secrets external-secrets/external-secrets \
+              --version "0.10.4" \
               --namespace external-secrets \
               --create-namespace \
               --set installCRDs=false \
@@ -240,8 +257,10 @@ jobs:
               --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=${ESO_ROLE_ARN}" \
               --wait --timeout 5m
           fi
-          kubectl annotate serviceaccount external-secrets-sa -n external-secrets \
-            eks.amazonaws.com/role-arn="${ESO_ROLE_ARN}" --overwrite 2>/dev/null || true
+          if kubectl get sa external-secrets-sa -n external-secrets >/dev/null 2>&1; then
+            kubectl annotate serviceaccount external-secrets-sa -n external-secrets \
+              eks.amazonaws.com/role-arn="${ESO_ROLE_ARN}" --overwrite
+          fi
 
       - name: Install Prometheus & Grafana (kube-prometheus-stack)
         run: |
@@ -251,6 +270,7 @@ jobs:
             helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
             helm repo update
             helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+              --version "65.8.1" \
               --namespace monitoring \
               --create-namespace \
               --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
@@ -259,9 +279,11 @@ jobs:
               --wait --timeout 7m
           fi
           echo "Ensuring Grafana subpath /grafana is configured..."
-          kubectl set env deployment/prometheus-grafana -n monitoring \
-            GF_SERVER_ROOT_URL="%(protocol)s://%(domain)s:%(http_port)s/grafana/" \
-            GF_SERVER_SERVE_FROM_SUB_PATH="true" 2>/dev/null || true
+          if kubectl get deployment prometheus-grafana -n monitoring >/dev/null 2>&1; then
+            kubectl set env deployment/prometheus-grafana -n monitoring \
+              GF_SERVER_ROOT_URL="%(protocol)s://%(domain)s:%(http_port)s/grafana/" \
+              GF_SERVER_SERVE_FROM_SUB_PATH="true"
+          fi
 
           echo "Applying YACE CloudWatch SQS Exporter..."
           sed -e "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" \
@@ -276,6 +298,7 @@ jobs:
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
             helm upgrade --install argocd argo/argo-cd \
+              --version "7.7.23" \
               --namespace argocd \
               --create-namespace \
               --set server.service.type=ClusterIP \
@@ -295,6 +318,7 @@ jobs:
             helm repo add argo https://argoproj.github.io/argo-helm
             helm repo update
             helm upgrade --install argo-rollouts argo/argo-rollouts \
+              --version "2.38.2" \
               --namespace argo-rollouts \
               --create-namespace \
               --set dashboard.enabled=true \
@@ -306,10 +330,6 @@ jobs:
 
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
-          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          fi
           kubectl get ns online-boutique >/dev/null 2>&1 || kubectl create ns online-boutique
           # keycloak namespace must exist before applying its ExternalSecret
           kubectl get ns keycloak >/dev/null 2>&1 || kubectl create ns keycloak
@@ -323,11 +343,93 @@ jobs:
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/frontend-keycloak-external-secret.yaml | kubectl apply -f -
           fi
 
+      - name: Pre-create Keycloak Database on Aurora
+        run: |
+          echo "Waiting for aurora-credentials ExternalSecret in online-boutique namespace..."
+          kubectl wait --for=condition=Ready externalsecret/aurora-credentials -n online-boutique --timeout=90s
+
+          echo "Ensuring 'keycloak' database exists on PostgreSQL / Aurora prior to Keycloak Helm installation..."
+          kubectl delete job pre-keycloak-db-init -n online-boutique --ignore-not-found
+
+          cat << 'EOF' | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: pre-keycloak-db-init
+            namespace: online-boutique
+          spec:
+            backoffLimit: 3
+            ttlSecondsAfterFinished: 120
+            template:
+              spec:
+                restartPolicy: OnFailure
+                containers:
+                  - name: db-init
+                    image: postgres:16-alpine
+                    env:
+                      - name: DB_HOST
+                        valueFrom:
+                          secretKeyRef:
+                            name: aurora-credentials
+                            key: DB_HOST
+                      - name: DB_USER
+                        valueFrom:
+                          secretKeyRef:
+                            name: aurora-credentials
+                            key: DB_USER
+                      - name: DB_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: aurora-credentials
+                            key: DB_PASSWORD
+                      - name: DB_PORT
+                        valueFrom:
+                          secretKeyRef:
+                            name: aurora-credentials
+                            key: DB_PORT
+                    command: ["/bin/sh", "-c"]
+                    args:
+                      - |
+                        export PGPASSWORD="$DB_PASSWORD"
+                        until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
+                          echo "Waiting for PostgreSQL at $DB_HOST:$DB_PORT..."
+                          sleep 2
+                        done
+                        EXISTS=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='keycloak'")
+                        if [ "$EXISTS" != "1" ]; then
+                          echo "Creating keycloak database..."
+                          psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE DATABASE keycloak;"
+                          echo "Database keycloak created successfully."
+                        else
+                          echo "Database keycloak already exists."
+                        fi
+          EOF
+
+          if ! kubectl wait --for=condition=complete job/pre-keycloak-db-init -n online-boutique --timeout=120s; then
+            echo "ERROR: pre-keycloak-db-init job failed or timed out."
+            kubectl logs job/pre-keycloak-db-init -n online-boutique 2>/dev/null || true
+            exit 1
+          fi
+          kubectl delete job pre-keycloak-db-init -n online-boutique --ignore-not-found
+
       - name: Install Keycloak (Identity Provider)
         run: |
           # Wait for ESO to sync the keycloak-credentials secret before Helm install
           echo "Waiting for keycloak-credentials ExternalSecret to be Ready..."
           kubectl wait --for=condition=Ready externalsecret/keycloak-credentials -n keycloak --timeout=90s
+
+          # Determine Aurora Host from Terraform output with AWS CLI fallback
+          AURORA_HOST="${{ needs.infra-up.outputs.aurora_endpoint }}"
+          if [ -z "$AURORA_HOST" ]; then
+            echo "Looking up Aurora cluster endpoint via aws rds describe-db-clusters..."
+            AURORA_HOST=$(aws rds describe-db-clusters --db-cluster-identifier "${CLUSTER_NAME}-aurora" --region ${{ github.event.inputs.aws_region }} --query 'DBClusters[0].Endpoint' --output text 2>/dev/null || true)
+            if [ -z "$AURORA_HOST" ] || [ "$AURORA_HOST" == "None" ]; then
+              echo "Looking up RDS DB instance endpoint via aws rds describe-db-instances..."
+              AURORA_HOST=$(aws rds describe-db-instances --db-instance-identifier "${CLUSTER_NAME}-pg" --region ${{ github.event.inputs.aws_region }} --query 'DBInstances[0].Endpoint.Address' --output text 2>/dev/null || true)
+            fi
+          fi
+          echo "Using Aurora database host: ${AURORA_HOST}"
+
           if helm status keycloak -n keycloak >/dev/null 2>&1; then
             echo "Keycloak is already installed."
           else
@@ -337,7 +439,9 @@ jobs:
             #  - postgresql.enabled=false: Use our external Aurora instance
             #  - proxy=edge: Trust X-Forwarded-For headers from NGINX ingress
             #  - httpRelativePath=/auth: Keycloak served at /auth path (no domain needed)
-            #  - existingSecret: All credentials from the synced ExternalSecret
+            #  - auth.adminUser: "admin" bootstrap user matching secret
+            #  - auth.existingSecret: keycloak-credentials containing KEYCLOAK_ADMIN_PASSWORD
+            #  - externalDatabase.*: pointing to Aurora endpoint and synced DB credentials
             helm upgrade --install keycloak bitnami/keycloak \
               --version "21.3.1" \
               --namespace keycloak \
@@ -345,11 +449,17 @@ jobs:
               --set image.registry="docker.io" \
               --set image.repository="bitnamilegacy/keycloak" \
               --set image.tag="24.0.4-debian-12-r1" \
-              --set existingSecret="keycloak-credentials" \
-              --set existingSecretKey.adminPassword="KEYCLOAK_ADMIN_PASSWORD" \
-              --set existingSecretKey.adminUser="KEYCLOAK_ADMIN" \
+              --set auth.adminUser="admin" \
+              --set auth.existingSecret="keycloak-credentials" \
+              --set auth.passwordSecretKey="KEYCLOAK_ADMIN_PASSWORD" \
               --set postgresql.enabled=false \
+              --set externalDatabase.host="${AURORA_HOST}" \
+              --set externalDatabase.port=5432 \
+              --set externalDatabase.user="postgres" \
+              --set externalDatabase.database="keycloak" \
               --set externalDatabase.existingSecret="keycloak-credentials" \
+              --set externalDatabase.existingSecretUserKey="KC_DB_USERNAME" \
+              --set externalDatabase.existingSecretPasswordKey="KC_DB_PASSWORD" \
               --set httpRelativePath="/auth" \
               --set production=false \
               --set proxy=edge \
@@ -408,9 +518,15 @@ jobs:
             kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create realms -f /tmp/realm.json
           else
             echo "online-boutique realm exists. Ensuring roles and client are present..."
-            # Ensure roles exist
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create roles -r online-boutique -s name=customer 2>/dev/null || true
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create roles -r online-boutique -s name=admin 2>/dev/null || true
+            # Ensure roles exist idempotently without failing on re-run
+            for ROLE in customer admin; do
+              if ! kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get roles/"$ROLE" -r online-boutique >/dev/null 2>&1; then
+                echo "Creating role '$ROLE' in online-boutique realm..."
+                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create roles -r online-boutique -s name="$ROLE"
+              else
+                echo "Role '$ROLE' already exists in online-boutique realm."
+              fi
+            done
 
             # Ensure boutique-frontend client exists
             if ! kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get clients -r online-boutique -q clientId=boutique-frontend >/dev/null 2>&1; then
@@ -450,10 +566,6 @@ jobs:
 
       - name: Annotate ServiceAccounts with SQS IRSA Role ARNs
         run: |
-          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          fi
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
           CHECKOUT_ROLE="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-checkoutservice-sqs"
@@ -486,23 +598,34 @@ jobs:
         run: |
           ENV="${{ github.event.inputs.environment }}"
           echo "Registering Online Boutique in ArgoCD for environment: ${ENV}..."
-          kubectl apply -f kubernetes/argocd/app-project.yaml || true
+          kubectl apply -f kubernetes/argocd/app-project.yaml
           sed "s/values-prod.yaml/values-${ENV}.yaml/g" kubernetes/argocd/application.yaml | kubectl apply -f -
           echo "ArgoCD is now tracking https://github.com/Nadavvv20/online-boutique-gitops!"
 
       - name: Wait for ArgoCD Application Sync
         run: |
           echo "Waiting for ArgoCD to sync Online Boutique from GitOps repository..."
+          SYNCED=false
           for i in $(seq 1 30); do
             STATUS=$(kubectl get application online-boutique -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Pending")
             HEALTH=$(kubectl get application online-boutique -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Pending")
             echo "ArgoCD Sync Status: $STATUS, Health: $HEALTH ($i/30)"
             if [ "$STATUS" == "Synced" ] && [ "$HEALTH" == "Healthy" ]; then
               echo "Online Boutique is fully synced and healthy via ArgoCD!"
+              SYNCED=true
               break
             fi
             sleep 10
           done
+
+          if [ "$SYNCED" != "true" ]; then
+            echo "ERROR: ArgoCD Application online-boutique failed to reach Synced+Healthy within the expected time."
+            echo "=== ArgoCD Application Details ==="
+            kubectl get application -n argocd || true
+            echo "=== online-boutique Namespace Pods ==="
+            kubectl get pods -n online-boutique || true
+            exit 1
+          fi
 
       - name: Verify Workloads Rollout & Print Access URLs
         run: |
@@ -579,11 +702,6 @@ jobs:
           echo "Starting smoke test suite against ALB: http://${ALB}"
           export BASE_URL="http://${ALB}"
           export AWS_REGION="${{ github.event.inputs.aws_region }}"
-          CLUSTER_NAME="${{ needs.infra-up.outputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          fi
-          export CLUSTER_NAME
           export RUN_DESTRUCTIVE="${{ github.event.inputs.run_destructive_tests || 'false' }}"
           chmod +x scripts/run-smoke-tests.sh
           # Pipe output through tee to preserve logs for artifact upload on failure or success
@@ -606,7 +724,7 @@ jobs:
             if [ -n "$KEYCLOAK_POD" ]; then
               USER_ID=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get users -r online-boutique -q username="${KEYCLOAK_TEST_USER}" --fields id --format csv --noquotes 2>/dev/null || true)
               if [ -n "$USER_ID" ]; then
-                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh delete users/"$USER_ID" -r online-boutique || true
+                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh delete users/"$USER_ID" -r online-boutique
                 echo "Temporary Keycloak user '${KEYCLOAK_TEST_USER}' deleted successfully."
               fi
             fi

@@ -2,8 +2,10 @@ package integration
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,12 +21,26 @@ func setupTestRedis(t *testing.T) (*redis.Client, func()) {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	password := os.Getenv("REDIS_PASSWORD")
+	if password == "" {
+		password = os.Getenv("REDIS_AUTH")
+	}
+	var tlsConfig *tls.Config
+	if strings.ToLower(os.Getenv("REDIS_TLS")) == "true" {
+		insecure := strings.ToLower(os.Getenv("REDIS_TLS_INSECURE")) == "true"
+		tlsConfig = &tls.Config{InsecureSkipVerify: insecure}
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:      addr,
+		Password:  password,
+		TLSConfig: tlsConfig,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err == nil {
-		t.Logf("Running test against REAL Redis at %s", addr)
+		t.Logf("Running test against REAL Redis at %s (TLS: %v, Auth: %v)", addr, tlsConfig != nil, password != "")
 		cleanup := func() {
 			rdb.Close()
 		}

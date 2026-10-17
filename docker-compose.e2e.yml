@@ -1,0 +1,340 @@
+services:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Storage & Middleware Infrastructure
+  # ─────────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: e2e-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: boutique_user
+      POSTGRES_PASSWORD: boutique_password
+      POSTGRES_DB: boutique_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boutique_user -d boutique_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  db-init:
+    image: postgres:16-alpine
+    container_name: e2e-db-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: boutique_db
+      DB_USER: boutique_user
+      DB_PASSWORD: boutique_password
+    volumes:
+      - ./scripts/db-init.sh:/db-init.sh:ro
+      - ../online-boutique-gitops/helm/online-boutique/templates/db-init-job.yaml:/templates/db-init-job.yaml:ro
+    command: ["/bin/sh", "/db-init.sh"]
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    container_name: e2e-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: e2e-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: "sns,sqs"
+      DEFAULT_REGION: "il-central-1"
+      AWS_DEFAULT_REGION: "il-central-1"
+      SQS_ENDPOINT_STRATEGY: "path"
+      LOCALSTACK_HOST: "localstack:4566"
+    volumes:
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-sns-sqs.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    container_name: e2e-keycloak
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8082:8080"
+    environment:
+      KEYCLOAK_ADMIN: "admin"
+      KEYCLOAK_ADMIN_PASSWORD: "admin"
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_PORT: "8080"
+      KC_HTTP_RELATIVE_PATH: "/auth"
+    volumes:
+      - ./kubernetes/keycloak/online-boutique-realm-dev.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; cat <&3 | grep -q '200 OK'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Online Boutique Microservices (Exact Helm Chart Env Vars)
+  # ─────────────────────────────────────────────────────────────────────────────
+  cartservice:
+    image: gcr.io/google-samples/microservices-demo/cartservice:v0.10.1
+    container_name: e2e-cartservice
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: "redis:6379"
+      INVENTORY_SERVICE_ADDR: "inventoryservice:7070"
+      REDIS_TTL_MINUTES: "15"
+    ports:
+      - "7072:7070"
+
+  currencyservice:
+    image: gcr.io/google-samples/microservices-demo/currencyservice:v0.10.1
+    container_name: e2e-currencyservice
+    environment:
+      PORT: "7000"
+      ENABLE_TRACING: "0"
+      DISABLE_PROFILER: "1"
+    ports:
+      - "7000:7000"
+
+  paymentservice:
+    image: gcr.io/google-samples/microservices-demo/paymentservice:v0.10.1
+    container_name: e2e-paymentservice
+    environment:
+      PORT: "50051"
+      ENABLE_TRACING: "0"
+      DISABLE_PROFILER: "1"
+    ports:
+      - "50052:50051"
+
+  adservice:
+    image: gcr.io/google-samples/microservices-demo/adservice:v0.10.1
+    container_name: e2e-adservice
+    environment:
+      PORT: "9555"
+    ports:
+      - "9555:9555"
+
+  recommendationservice:
+    image: gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1
+    container_name: e2e-recommendationservice
+    depends_on:
+      - productcatalogservice
+    environment:
+      PORT: "8080"
+      PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+      ENABLE_TRACING: "0"
+      DISABLE_PROFILER: "1"
+    ports:
+      - "8084:8080"
+
+  inventoryservice:
+    image: online-boutique/inventoryservice:e2e
+    container_name: e2e-inventoryservice
+    build:
+      context: ../Google-Boutique-apps/src/inventoryservice
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      PORT: "7070"
+      REDIS_ADDR: "redis:6379"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "boutique_db"
+      DB_USER: "boutique_user"
+      DB_PASSWORD: "boutique_password"
+    ports:
+      - "7070:7070"
+
+  productcatalogservice:
+    image: online-boutique/productcatalogservice:e2e
+    container_name: e2e-productcatalogservice
+    build:
+      context: ../Google-Boutique-apps/src/productcatalogservice
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      PORT: "3550"
+      REDIS_ADDR: "redis:6379"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "boutique_db"
+      DB_USER: "boutique_user"
+      DB_PASSWORD: "boutique_password"
+      ENABLE_TRACING: "0"
+      DISABLE_PROFILER: "1"
+      EXTRA_LATENCY: "0"
+    ports:
+      - "3550:3550"
+
+  shippingservice:
+    image: online-boutique/shippingservice:e2e
+    container_name: e2e-shippingservice
+    build:
+      context: ../Google-Boutique-apps/src/shippingservice
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      PORT: "50051"
+      ORDER_EVENTS_QUEUE_URL: "http://localstack:4566/000000000000/online-boutique-dev-order-events-shipping"
+      AWS_REGION: "il-central-1"
+      AWS_ENDPOINT_URL: "http://localstack:4566"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      REDIS_ADDR: "redis:6379"
+      DISABLE_PROFILER: "1"
+    ports:
+      - "50051:50051"
+
+  emailservice:
+    image: online-boutique/emailservice:e2e
+    container_name: e2e-emailservice
+    build:
+      context: ../Google-Boutique-apps/src/emailservice
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      ORDER_EVENTS_QUEUE_URL: "http://localstack:4566/000000000000/online-boutique-dev-order-events-email"
+      AWS_REGION: "il-central-1"
+      AWS_ENDPOINT_URL: "http://localstack:4566"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      REDIS_ADDR: "redis:6379"
+      ENABLE_TRACING: "0"
+      DISABLE_PROFILER: "1"
+    ports:
+      - "8081:8080"
+
+  checkoutservice:
+    image: online-boutique/checkoutservice:e2e
+    container_name: e2e-checkoutservice
+    build:
+      context: ../Google-Boutique-apps/src/checkoutservice
+      dockerfile: Dockerfile
+    depends_on:
+      productcatalogservice:
+        condition: service_started
+      shippingservice:
+        condition: service_started
+      paymentservice:
+        condition: service_started
+      emailservice:
+        condition: service_started
+      currencyservice:
+        condition: service_started
+      cartservice:
+        condition: service_started
+      inventoryservice:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      PORT: "5050"
+      PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+      SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+      PAYMENT_SERVICE_ADDR: "paymentservice:50051"
+      EMAIL_SERVICE_ADDR: "emailservice:8080"
+      CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+      CART_SERVICE_ADDR: "cartservice:7070"
+      INVENTORY_SERVICE_ADDR: "inventoryservice:7070"
+      ORDER_EVENTS_TOPIC_ARN: "arn:aws:sns:il-central-1:000000000000:online-boutique-dev-order-events"
+      AWS_REGION: "il-central-1"
+      AWS_ENDPOINT_URL: "http://localstack:4566"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      REDIS_ADDR: "redis:6379"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "boutique_db"
+      DB_USER: "boutique_user"
+      DB_PASSWORD: "boutique_password"
+      ENABLE_TRACING: "0"
+      ENABLE_PROFILER: "0"
+    ports:
+      - "5050:5050"
+
+  frontend:
+    image: online-boutique/frontend:e2e
+    container_name: e2e-frontend
+    build:
+      context: ../Google-Boutique-apps/src/frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - productcatalogservice
+      - currencyservice
+      - cartservice
+      - recommendationservice
+      - shippingservice
+      - checkoutservice
+      - adservice
+      - inventoryservice
+      - keycloak
+    environment:
+      PORT: "8080"
+      PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+      CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+      CART_SERVICE_ADDR: "cartservice:7070"
+      RECOMMENDATION_SERVICE_ADDR: "recommendationservice:8080"
+      SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+      CHECKOUT_SERVICE_ADDR: "checkoutservice:5050"
+      AD_SERVICE_ADDR: "adservice:9555"
+      SHOPPING_ASSISTANT_SERVICE_ADDR: "shoppingassistantservice:80"
+      ENV_PLATFORM: "local"
+      ENABLE_TRACING: "0"
+      ENABLE_PROFILER: "0"
+      CYMBAL_BRANDING: "false"
+      ENABLE_ASSISTANT: "false"
+      ENABLE_SINGLE_SHARED_SESSION: "false"
+      REDIS_ADDR: "redis:6379"
+      INVENTORY_SERVICE_ADDR: "inventoryservice:7070"
+      COOKIE_SECURE: "false"
+      ENABLE_TEST_RATE_LIMIT_BYPASS: "true"
+      KEYCLOAK_URL: "http://localhost:8082/auth"
+      KEYCLOAK_INTERNAL_URL: "http://keycloak:8080/auth"
+      KEYCLOAK_REALM: "online-boutique"
+      KEYCLOAK_CLIENT_ID: "boutique-frontend"
+      KEYCLOAK_CLIENT_SECRET: "boutique-frontend-secret-key"
+    ports:
+      - "8080:8080"

@@ -1,6 +1,7 @@
 package smoke
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,10 +22,20 @@ func Test01_LastItemRace(t *testing.T) {
 	testProductID := getEnv("TEST_PRODUCT_ID", "OLJCESPC7Z") // Vintage Typewriter
 	t.Logf("Running Last-Item Race test against %s for product %s", baseURL, testProductID)
 
-	// If running with cluster access, ensure product stock is set to 1 in Redis for the test
+	// Ensure product stock is set to 1 in Redis for the test
 	if isClusterAccessible() {
 		_, _ = execInPod("online-boutique", "app=inventoryservice",
 			"sh", "-c", fmt.Sprintf("redis-cli -h $REDIS_ADDR -p 6379 SET 'stock:{%s}' 1", testProductID))
+	} else if rdb := getRedisClient(); rdb != nil {
+		ctx := context.Background()
+		_ = rdb.Set(ctx, fmt.Sprintf("stock:{%s}", testProductID), 1, 0).Err()
+		delScript := fmt.Sprintf(`
+			local keys = redis.call('KEYS', 'hold:{%s}:*')
+			for _, k in ipairs(keys) do redis.call('DEL', k) end
+			redis.call('DEL', 'holds:expiry:{%s}')
+		`, testProductID, testProductID)
+		_ = rdb.Eval(ctx, delScript, nil).Err()
+		rdb.Close()
 	}
 
 	const concurrentUsers = 50

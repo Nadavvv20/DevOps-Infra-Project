@@ -86,23 +86,26 @@ jobs:
         if: steps.kubeconfig.outputs.cluster_found == 'true'
         run: |
           echo "Deleting all Ingress resources across all namespaces..."
-          kubectl delete ingress --all --all-namespaces --timeout=3m || true
+          kubectl delete ingress --all --all-namespaces --ignore-not-found --timeout=3m
 
           echo "Deleting all Services of type LoadBalancer across all namespaces..."
-          kubectl delete svc --all-namespaces --field-selector spec.type=LoadBalancer --timeout=3m || true
-          kubectl delete svc -n ingress-nginx ingress-nginx-controller --timeout=3m || true
+          kubectl delete svc --all-namespaces --field-selector spec.type=LoadBalancer --ignore-not-found --timeout=3m
+          kubectl delete svc -n ingress-nginx ingress-nginx-controller --ignore-not-found --timeout=3m
           
-          echo "Uninstalling Helm releases..."
-          helm uninstall online-boutique -n online-boutique || true
-          helm uninstall keycloak -n keycloak || true
-          helm uninstall argocd -n argocd || true
-          helm uninstall prometheus -n monitoring || true
-          helm uninstall external-secrets -n external-secrets || true
-          helm uninstall ingress-nginx -n ingress-nginx || true
+          echo "Uninstalling Helm releases (ignoring if not found)..."
+          helm uninstall online-boutique -n online-boutique --ignore-not-found
+          helm uninstall keycloak -n keycloak --ignore-not-found
+          helm uninstall argo-rollouts -n argo-rollouts --ignore-not-found
+          helm uninstall argocd -n argocd --ignore-not-found
+          helm uninstall prometheus -n monitoring --ignore-not-found
+          helm uninstall external-secrets -n external-secrets --ignore-not-found
+          helm uninstall ingress-nginx -n ingress-nginx --ignore-not-found
+          helm uninstall karpenter -n kube-system --ignore-not-found
+          helm uninstall karpenter-crd -n kube-system --ignore-not-found
 
           echo "Waiting for AWS cloud load balancers and ENIs to be released..."
           for i in $(seq 1 18); do
-            REMAINING_LBS=$(kubectl get svc --all-namespaces --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null || true)
+            REMAINING_LBS=$(kubectl get svc --all-namespaces --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null)
             if [ -z "$REMAINING_LBS" ]; then
               echo "All LoadBalancer services successfully terminated."
               break

@@ -23,6 +23,11 @@ func Test05_Fanout(t *testing.T) {
 
 	client := createHTTPClient()
 
+	// Authenticate via Keycloak
+	if err := loginUser(t, client, baseURL); err != nil {
+		t.Fatalf("Failed to authenticate user for fanout test: %v", err)
+	}
+
 	// Step 1: Add item to cart
 	formData := url.Values{
 		"product_id": {testProductID},

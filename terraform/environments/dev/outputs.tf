@@ -47,3 +47,8 @@ output "shippingservice_role_arn" {
   description = "IRSA role ARN to annotate the shippingservice Kubernetes ServiceAccount."
   value       = module.iam_roles.shippingservice_role_arn
 }
+
+output "aurora_endpoint" {
+  description = "Aurora / RDS PostgreSQL cluster endpoint"
+  value       = module.rds_aurora.cluster_endpoint
+}

@@ -37,6 +37,9 @@ func Test09_Consistency(t *testing.T) {
 	const numOrders = 3
 	for i := 1; i <= numOrders; i++ {
 		client := createHTTPClient()
+		if err := loginUser(t, client, baseURL); err != nil {
+			t.Fatalf("Failed to authenticate user for order %d: %v", i, err)
+		}
 		// Add to cart
 		formData := url.Values{
 			"product_id": {testProductID},

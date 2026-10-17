@@ -16,6 +16,8 @@ override.tf.json
 secrets.auto.tfvars
 *.pem
 *.key
+*.crt
+certs/
 kubeconfig*
 .kube/
 
@@ -45,3 +47,6 @@ __pycache__/
 # Helm
 helm/*/charts/*.tgz
 helm/*/Chart.lock
+
+# Scratch
+scratch/
