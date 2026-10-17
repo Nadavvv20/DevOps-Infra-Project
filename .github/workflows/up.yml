@@ -284,8 +284,8 @@ jobs:
               --wait --timeout 5m
           fi
           echo "Ensuring ArgoCD subpath /argocd is configured..."
-          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.basehref":"/argocd","server.rootpath":"/argocd"}}' 2>/dev/null || true
-          kubectl rollout restart deployment/argocd-server -n argocd 2>/dev/null || true
+          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.basehref":"/argocd","server.rootpath":"/argocd"}}'
+          kubectl rollout restart deployment/argocd-server -n argocd
 
       - name: Install Argo Rollouts Controller & Dashboard
         run: |
@@ -300,6 +300,9 @@ jobs:
               --set dashboard.enabled=true \
               --wait --timeout 5m
           fi
+          echo "Installing kubectl-argo-rollouts CLI plugin..."
+          sudo curl -sSL -o /usr/local/bin/kubectl-argo-rollouts https://github.com/argoproj/argo-rollouts/releases/download/v1.7.2/kubectl-argo-rollouts-linux-amd64
+          sudo chmod +x /usr/local/bin/kubectl-argo-rollouts
 
       - name: Apply ExternalSecrets Stores and Secret Manifests
         run: |
@@ -312,7 +315,7 @@ jobs:
           kubectl get ns keycloak >/dev/null 2>&1 || kubectl create ns keycloak
           if [ -d "kubernetes/external-secrets" ]; then
             echo "Applying ClusterSecretStore and external secrets..."
-            kubectl apply -f kubernetes/external-secrets/cluster-secret-store.yaml || true
+            kubectl apply -f kubernetes/external-secrets/cluster-secret-store.yaml
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/aurora-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/redis-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/sqs-external-secret.yaml | kubectl apply -f -
@@ -324,7 +327,7 @@ jobs:
         run: |
           # Wait for ESO to sync the keycloak-credentials secret before Helm install
           echo "Waiting for keycloak-credentials ExternalSecret to be Ready..."
-          kubectl wait --for=condition=Ready externalsecret/keycloak-credentials -n keycloak --timeout=90s || true
+          kubectl wait --for=condition=Ready externalsecret/keycloak-credentials -n keycloak --timeout=90s
           if helm status keycloak -n keycloak >/dev/null 2>&1; then
             echo "Keycloak is already installed."
           else
@@ -528,9 +531,9 @@ jobs:
         run: |
           ENV_NAME="${{ github.event.inputs.environment }}"
           if [ "$ENV_NAME" != "prod" ]; then
-            echo "Non-prod environment ($ENV_NAME): Enabling ENABLE_TEST_RATE_LIMIT_BYPASS=true on frontend deployment..."
-            kubectl set env deployment/frontend -n online-boutique ENABLE_TEST_RATE_LIMIT_BYPASS=true
-            kubectl rollout status deployment/frontend -n online-boutique --timeout=90s
+            echo "Non-prod environment ($ENV_NAME): Enabling ENABLE_TEST_RATE_LIMIT_BYPASS=true on frontend rollout..."
+            kubectl argo rollouts set env rollout/frontend -n online-boutique ENABLE_TEST_RATE_LIMIT_BYPASS=true
+            kubectl argo rollouts status rollout/frontend -n online-boutique --timeout=90s
           else
             echo "Production environment detected ($ENV_NAME): ENABLE_TEST_RATE_LIMIT_BYPASS remains hard-disabled."
           fi
@@ -614,6 +617,6 @@ jobs:
         run: |
           ENV_NAME="${{ github.event.inputs.environment }}"
           if [ "$ENV_NAME" != "prod" ]; then
-            echo "Reverting ENABLE_TEST_RATE_LIMIT_BYPASS=false on frontend..."
-            kubectl set env deployment/frontend -n online-boutique ENABLE_TEST_RATE_LIMIT_BYPASS=false || true
+            echo "Reverting ENABLE_TEST_RATE_LIMIT_BYPASS=false on frontend rollout..."
+            kubectl argo rollouts set env rollout/frontend -n online-boutique ENABLE_TEST_RATE_LIMIT_BYPASS=false
           fi
