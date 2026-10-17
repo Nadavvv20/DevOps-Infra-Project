@@ -28,8 +28,9 @@ resource "aws_security_group" "aurora" {
 }
 
 resource "random_password" "aurora" {
-  length  = 32
-  special = false
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 resource "aws_secretsmanager_secret" "aurora_credentials" {

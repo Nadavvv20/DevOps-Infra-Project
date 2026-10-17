@@ -263,6 +263,11 @@ jobs:
             GF_SERVER_ROOT_URL="%(protocol)s://%(domain)s:%(http_port)s/grafana/" \
             GF_SERVER_SERVE_FROM_SUB_PATH="true" 2>/dev/null || true
 
+          echo "Applying YACE CloudWatch SQS Exporter..."
+          sed -e "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" \
+              -e "s/{{AWS_ACCOUNT_ID}}/${AWS_ACCOUNT_ID}/g" \
+              kubernetes/monitoring/yace-sqs-exporter.yaml | kubectl apply -f -
+
       - name: Install ArgoCD
         run: |
           if helm status argocd -n argocd >/dev/null 2>&1; then

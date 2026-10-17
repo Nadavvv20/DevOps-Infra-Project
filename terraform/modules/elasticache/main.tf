@@ -28,8 +28,9 @@ resource "aws_security_group" "redis" {
 }
 
 resource "random_password" "redis_auth" {
-  length  = 32
-  special = false
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 resource "aws_secretsmanager_secret" "redis_auth" {

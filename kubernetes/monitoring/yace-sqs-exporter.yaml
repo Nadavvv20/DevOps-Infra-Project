@@ -36,6 +36,8 @@ metadata:
   namespace: monitoring
   labels:
     app.kubernetes.io/name: yace-sqs-exporter
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/{{CLUSTER_NAME}}-yace-sqs-exporter
 ---
 apiVersion: apps/v1
 kind: Deployment
