@@ -65,9 +65,11 @@ module "eks" {
 module "karpenter" {
   source = "../../modules/karpenter"
 
-  cluster_name      = local.cluster_name
+  cluster_name      = module.eks.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
   tags              = local.common_tags
+
+  depends_on = [module.eks]
 }
 
 module "rds_aurora" {
