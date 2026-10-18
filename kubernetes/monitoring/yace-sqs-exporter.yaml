@@ -17,7 +17,7 @@ data:
           regions:
             - il-central-1
           searchTags:
-            - key: app.kubernetes.io/part-of
+            - key: Project
               value: online-boutique
           metrics:
             - name: ApproximateNumberOfMessagesVisible

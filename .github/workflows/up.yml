@@ -317,10 +317,11 @@ jobs:
               --set server.service.type=ClusterIP \
               --set "configs.params.server\.basehref=/argocd" \
               --set "configs.params.server\.rootpath=/argocd" \
+              --set "configs.params.server\.insecure=true" \
               --wait --timeout 5m
           fi
           echo "Ensuring ArgoCD subpath /argocd is configured..."
-          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.basehref":"/argocd","server.rootpath":"/argocd"}}'
+          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.basehref":"/argocd","server.rootpath":"/argocd","server.insecure":"true"}}'
           kubectl rollout restart deployment/argocd-server -n argocd
 
       - name: Install Argo Rollouts Controller & Dashboard
@@ -354,6 +355,9 @@ jobs:
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/sqs-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/keycloak-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/frontend-keycloak-external-secret.yaml | kubectl apply -f -
+
+            echo "Waiting for ExternalSecrets in online-boutique to sync..."
+            kubectl wait --for=condition=Ready externalsecret/sqs-config -n online-boutique --timeout=90s || true
           fi
 
       - name: Pre-create Keycloak Database on Aurora
@@ -583,6 +587,23 @@ jobs:
             exit 1
           fi
           echo "Keycloak realms and boutique-frontend client verified successfully!"
+
+          echo "Ensuring persistent demo user 'testuser' exists in online-boutique realm..."
+          USER_ID=$(kcadm get users -r online-boutique -q username=testuser --fields id --format csv --noquotes 2>/dev/null || true)
+          if [ -z "$USER_ID" ]; then
+            echo "Creating demo user 'testuser'..."
+            kcadm create users -r online-boutique \
+              -s username=testuser \
+              -s enabled=true \
+              -s email=testuser@example.com \
+              -s firstName=Test \
+              -s lastName=User \
+              -s emailVerified=true
+            kcadm set-password -r online-boutique --username testuser --new-password 'TestPass123!'
+            echo "Demo user 'testuser' created successfully."
+          else
+            echo "Demo user 'testuser' already exists."
+          fi
 
       - name: Annotate ServiceAccounts with SQS IRSA Role ARNs
         run: |
