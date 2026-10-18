@@ -701,10 +701,12 @@ jobs:
           kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create users -r online-boutique \
             -s username="${SMOKE_USER}" \
             -s enabled=true \
-            -s email="${SMOKE_USER}@example.com"
+            -s email="${SMOKE_USER}@example.com" \
+            --config /tmp/kcadm.config
           kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh set-password -r online-boutique \
             --username "${SMOKE_USER}" \
-            --new-password "${SMOKE_PASS}"
+            --new-password "${SMOKE_PASS}" \
+            --config /tmp/kcadm.config
           echo "Temporary Keycloak smoke user created successfully."
 
       - name: Setup Go for Architecture Smoke Tests
@@ -742,9 +744,9 @@ jobs:
             echo "Deleting temporary Keycloak user '${KEYCLOAK_TEST_USER}'..."
             KEYCLOAK_POD=$(kubectl get pod -l app.kubernetes.io/name=keycloak -n keycloak -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
             if [ -n "$KEYCLOAK_POD" ]; then
-              USER_ID=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get users -r online-boutique -q username="${KEYCLOAK_TEST_USER}" --fields id --format csv --noquotes 2>/dev/null || true)
+              USER_ID=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get users -r online-boutique -q username="${KEYCLOAK_TEST_USER}" --fields id --format csv --noquotes --config /tmp/kcadm.config 2>/dev/null || true)
               if [ -n "$USER_ID" ]; then
-                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh delete users/"$USER_ID" -r online-boutique
+                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh delete users/"$USER_ID" -r online-boutique --config /tmp/kcadm.config
                 echo "Temporary Keycloak user '${KEYCLOAK_TEST_USER}' deleted successfully."
               fi
             fi
