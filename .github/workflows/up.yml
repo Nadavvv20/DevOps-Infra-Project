@@ -179,35 +179,48 @@ jobs:
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           KARPENTER_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/karpenter-controller-${CLUSTER_NAME}"
 
-          echo "Authenticating Helm with Public ECR (with anonymous fallback)..."
-          if aws ecr-public get-login-password --region us-east-1 2>/dev/null | helm registry login --username AWS --password-stdin public.ecr.aws 2>/dev/null; then
+          echo "Authenticating Helm with Public ECR..."
+          ECR_PASS=$(aws ecr-public get-login-password --region us-east-1 2>&1)
+          if [ $? -eq 0 ] && [ -n "$ECR_PASS" ]; then
+            echo "$ECR_PASS" | helm registry login --username AWS --password-stdin public.ecr.aws
             echo "Successfully authenticated with Public ECR."
           else
-            echo "Public ECR login skipped/failed; proceeding with anonymous pull."
+            echo "::warning::Public ECR login output: $ECR_PASS"
           fi
+
+          echo "Applying Karpenter CRDs from repository..."
+          kubectl apply -f kubernetes/crds/karpenter-crds.yaml --server-side --force-conflicts
+          kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws --timeout=60s
 
           if helm status karpenter -n kube-system >/dev/null 2>&1; then
             echo "Karpenter is already installed."
           else
-            echo "Installing Karpenter CRDs..."
-            helm upgrade --install karpenter-crd oci://public.ecr.aws/karpenter/karpenter-crd \
-              --version "1.0.6" \
-              --namespace kube-system \
-              --create-namespace
-
             echo "Installing Karpenter Controller..."
-            helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
-              --version "1.0.6" \
-              --namespace kube-system \
-              --create-namespace \
-              --set "settings.clusterName=${CLUSTER_NAME}" \
-              --set "settings.interruptionQueue=${CLUSTER_NAME}-karpenter-interruption" \
-              --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=${KARPENTER_ROLE_ARN}" \
-              --set controller.resources.requests.cpu="200m" \
-              --set controller.resources.requests.memory="256Mi" \
-              --set controller.resources.limits.cpu="1" \
-              --set controller.resources.limits.memory="1Gi" \
-              --wait --timeout 5m
+            for attempt in 1 2 3; do
+              echo "Karpenter install attempt $attempt/3..."
+              if helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+                --version "1.0.6" \
+                --namespace kube-system \
+                --create-namespace \
+                --set "settings.clusterName=${CLUSTER_NAME}" \
+                --set "settings.interruptionQueue=${CLUSTER_NAME}-karpenter-interruption" \
+                --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=${KARPENTER_ROLE_ARN}" \
+                --set controller.resources.requests.cpu="200m" \
+                --set controller.resources.requests.memory="256Mi" \
+                --set controller.resources.limits.cpu="1" \
+                --set controller.resources.limits.memory="1Gi" \
+                --wait --timeout 5m; then
+                echo "Karpenter controller successfully installed."
+                break
+              else
+                if [ $attempt -eq 3 ]; then
+                  echo "ERROR: Failed to install Karpenter controller after 3 attempts."
+                  exit 1
+                fi
+                echo "Attempt $attempt failed. Retrying in 15 seconds..."
+                sleep 15
+              fi
+            done
           fi
 
           echo "Applying Karpenter Default EC2NodeClass and NodePool..."
