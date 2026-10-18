@@ -192,8 +192,8 @@ jobs:
           kubectl apply -f kubernetes/crds/karpenter-crds.yaml --server-side --force-conflicts
           kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh crd/ec2nodeclasses.karpenter.k8s.aws --timeout=60s
 
-          if helm status karpenter -n kube-system >/dev/null 2>&1; then
-            echo "Karpenter is already installed."
+          if kubectl get deployment karpenter -n kube-system >/dev/null 2>&1 && [ "$(kubectl get deployment karpenter -n kube-system -o jsonpath='{.status.readyReplicas}')" -ge 1 ] 2>/dev/null; then
+            echo "Karpenter is already installed and healthy."
           else
             echo "Installing Karpenter Controller..."
             for attempt in 1 2 3; do

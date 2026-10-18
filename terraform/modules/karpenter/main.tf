@@ -38,8 +38,10 @@ module "karpenter_irsa" {
   role_name                          = "karpenter-controller-${var.cluster_name}"
   attach_karpenter_controller_policy = true
 
-  karpenter_controller_cluster_name       = var.cluster_name
-  karpenter_controller_node_iam_role_arns = [aws_iam_role.karpenter_node.arn]
+  karpenter_controller_cluster_name          = var.cluster_name
+  karpenter_controller_node_iam_role_arns    = [aws_iam_role.karpenter_node.arn]
+  karpenter_sqs_queue_arn                    = aws_sqs_queue.karpenter_interruption.arn
+  enable_karpenter_instance_profile_creation = true
 
   oidc_providers = {
     main = {
