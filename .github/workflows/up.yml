@@ -303,6 +303,12 @@ jobs:
               -e "s/{{AWS_ACCOUNT_ID}}/${AWS_ACCOUNT_ID}/g" \
               kubernetes/monitoring/yace-sqs-exporter.yaml | kubectl apply -f -
 
+          echo "Applying Grafana Dashboards and Prometheus Rules..."
+          kubectl apply -f kubernetes/monitoring/grafana-dashboard-inventory.yaml
+          kubectl apply -f kubernetes/monitoring/grafana-dashboard-ecommerce-golden-signals.yaml
+          kubectl apply -f kubernetes/monitoring/grafana-dashboard-scaling-and-data.yaml
+          kubectl apply -f kubernetes/monitoring/prometheus-rules.yaml || true
+
       - name: Install ArgoCD
         run: |
           if helm status argocd -n argocd >/dev/null 2>&1; then

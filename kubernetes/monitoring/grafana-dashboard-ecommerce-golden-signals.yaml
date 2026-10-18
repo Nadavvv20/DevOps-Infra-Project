@@ -1,0 +1,527 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ecommerce-golden-signals
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    release: kube-prometheus-stack
+data:
+  ecommerce-golden-signals.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Executive Summary & SLO Health (Golden Signals Overview)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "mappings": [],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+          "id": 1,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Global Ingress Traffic (RPS)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\"}[1m])) or sum(rate(http_requests_total{namespace=\"online-boutique\"}[1m])) or 0",
+              "legendFormat": "RPS",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "max": 100,
+              "min": 95,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 99 },
+                  { "color": "yellow", "value": 99.5 },
+                  { "color": "green", "value": 99.9 }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+          "id": 2,
+          "options": {
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "title": "Availability vs SLO (Target: 99.9%)",
+          "type": "gauge",
+          "targets": [
+            {
+              "expr": "clamp_max((1 - (sum(rate(http_requests_total{status=~\"5..\"}[5m])) or sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[5m])) or 0) / (sum(rate(http_requests_total[5m])) or sum(rate(nginx_ingress_controller_requests[5m])) or 1)) * 100, 100)",
+              "legendFormat": "Availability %",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 250 },
+                  { "color": "red", "value": 500 }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Frontend Latency P99 (SLO <500ms)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "(histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"online-boutique\"}[2m])) by (le)) * 1000) or (histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000) or 0",
+              "legendFormat": "P99 (ms)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "blue", "value": 10 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Orders Processed / min",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "(sum(rate(grpc_server_handled_total{grpc_method=\"PlaceOrder\",grpc_code=\"OK\"}[1m])) * 60) or (sum(rate(aws_sqs_number_of_messages_sent_sum{dimension_QueueName=~\"online-boutique.*\"}[1m])) * 60) or 0",
+              "legendFormat": "Orders/min",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 10 },
+                  { "color": "red", "value": 50 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+          "id": 5,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "SQS In-Flight Queue Depth",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*email|online-boutique.*shipping\"}) or 0",
+              "legendFormat": "Pending Orders",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "id": 6,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Dead-Letter Queue (DLQ) Alerts",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*dlq\"}) or 0",
+              "legendFormat": "DLQ Messages",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+          "id": 200,
+          "title": "Golden Signal 1: Latency & Response Times (Service Level Indicators)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2, "spanNulls": true },
+              "unit": "ms"
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byRegexp", "options": ".*[pP]99.*" },
+                "properties": [{ "id": "custom.lineWidth", "value": 3 }]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "id": 7,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Microservice Latency Profiles (P50, P90, P99)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=~\"frontend.*\"}[2m])) by (le)) * 1000",
+              "legendFormat": "frontend - p99",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=~\"frontend.*\"}[2m])) by (le)) * 1000",
+              "legendFormat": "frontend - p50",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"hipstershop.CheckoutService\"}[2m])) by (le)) * 1000",
+              "legendFormat": "checkoutservice - p99",
+              "refId": "C"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"hipstershop.CartService\"}[2m])) by (le)) * 1000",
+              "legendFormat": "cartservice - p99",
+              "refId": "D"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"hipstershop.ProductCatalogService\"}[2m])) by (le)) * 1000",
+              "legendFormat": "productcatalogservice - p99",
+              "refId": "E"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2, "spanNulls": true },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "id": 8,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Ingress Edge Latency vs Upstream Response",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000",
+              "legendFormat": "Ingress Edge P99",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000",
+              "legendFormat": "Ingress Edge P50",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000",
+              "legendFormat": "Upstream Pod P99",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+          "id": 300,
+          "title": "Golden Signal 2 & 3: Traffic Throughput & Error Rate Budgets",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 30, "lineWidth": 2, "stacking": { "group": "A", "mode": "normal" } },
+              "unit": "reqps"
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "2xx Success" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "3xx Redirect" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "4xx Client Error" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "5xx Server Error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+          "id": 9,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Traffic Volume by HTTP Status Class",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"2..\"}[1m])) or sum(rate(http_requests_total{status=~\"2..\"}[1m]))",
+              "legendFormat": "2xx Success",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"3..\"}[1m])) or sum(rate(http_requests_total{status=~\"3..\"}[1m]))",
+              "legendFormat": "3xx Redirect",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"4..\"}[1m])) or sum(rate(http_requests_total{status=~\"4..\"}[1m]))",
+              "legendFormat": "4xx Client Error",
+              "refId": "C"
+            },
+            {
+              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"5..\"}[1m])) or sum(rate(http_requests_total{status=~\"5..\"}[1m]))",
+              "legendFormat": "5xx Server Error",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 6 },
+                  { "color": "red", "value": 14 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+          "id": 10,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "SLO Error Budget Burn Rate (1h & 6h Multi-Window)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[1h])) or sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[1h])) or 0) / (sum(rate(http_requests_total[1h])) or sum(rate(nginx_ingress_controller_requests[1h])) or 1) / 0.001",
+              "legendFormat": "1h Burn Rate (Critical > 14x)",
+              "refId": "A"
+            },
+            {
+              "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[6h])) or sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[6h])) or 0) / (sum(rate(http_requests_total[6h])) or sum(rate(nginx_ingress_controller_requests[6h])) or 1) / 0.001",
+              "legendFormat": "6h Burn Rate (Warning > 6x)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+          "id": 400,
+          "title": "E-Commerce Funnel & Business Operational Metrics",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 20, "lineWidth": 2 },
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "id": 11,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "E-Commerce User Journey Funnel",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"GetProduct\"}[1m]))",
+              "legendFormat": "1. Product Views (Browsing)",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"AddItem\"}[1m]))",
+              "legendFormat": "2. Add to Cart",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"PlaceOrder\"}[1m]))",
+              "legendFormat": "3. Checkout Initiated",
+              "refId": "C"
+            },
+            {
+              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"PlaceOrder\",grpc_code=\"OK\"}[1m]))",
+              "legendFormat": "4. Order Completed (Success)",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 20, "lineWidth": 2 },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "id": 12,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Event-Driven Fan-Out Rate (SNS -> SQS Queues)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(aws_sqs_number_of_messages_sent_sum{dimension_QueueName=~\"online-boutique.*email\"}[1m]) * 60",
+              "legendFormat": "SQS Email Queue (msg/min)",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(aws_sqs_number_of_messages_sent_sum{dimension_QueueName=~\"online-boutique.*shipping\"}[1m]) * 60",
+              "legendFormat": "SQS Shipping Queue (msg/min)",
+              "refId": "B"
+            },
+            {
+              "expr": "rate(inventory_reservations_total{result=\"success\"}[1m]) * 60",
+              "legendFormat": "Inventory Holds (holds/min)",
+              "refId": "C"
+            }
+          ]
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["online-boutique", "slo", "ecommerce", "sre"],
+      "time": { "from": "now-30m", "to": "now" },
+      "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+      "timezone": "browser",
+      "title": "Online Boutique — E-Commerce Golden Signals & SLOs",
+      "uid": "online-boutique-golden-signals"
+    }

@@ -1,0 +1,464 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-scaling-and-data
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    release: kube-prometheus-stack
+data:
+  scaling-and-data-tier.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Two-Tier Autoscaling Overview (HPA Pods & Karpenter EC2 Nodes)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+          "id": 1,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Total App Pods (Online Boutique)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "count(kube_pod_status_phase{phase=\"Running\",namespace=\"online-boutique\"}) or 0",
+              "legendFormat": "Pods",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 5 },
+                  { "color": "purple", "value": 10 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Cluster EC2 Worker Nodes",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "count(kube_node_info) or 0",
+              "legendFormat": "Nodes",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Pending Pods (Karpenter Trigger)",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{phase=\"Pending\",namespace=\"online-boutique\"}) or 0",
+              "legendFormat": "Pending",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 70 },
+                  { "color": "red", "value": 85 }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Cluster CPU Allocatable Saturation",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "(sum(kube_pod_container_resource_requests{resource=\"cpu\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"})) * 100",
+              "legendFormat": "CPU Saturation %",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 70 },
+                  { "color": "red", "value": 85 }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+          "id": 5,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Cluster Memory Saturation",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "(sum(kube_pod_container_resource_requests{resource=\"memory\"}) / sum(kube_node_status_allocatable{resource=\"memory\"})) * 100",
+              "legendFormat": "RAM Saturation %",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "mappings": [],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "id": 6,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "Spot Instances Ratio",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or 0",
+              "legendFormat": "Spot Nodes",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+          "id": 200,
+          "title": "Tier 1: Horizontal Pod Autoscaler (HPA) Live Scaling Metrics",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "id": 7,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Active Pod Replicas by Service (HPA Scaling)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"online-boutique\"}",
+              "legendFormat": "{{horizontalpodautoscaler}} (replicas)",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(kube_pod_status_phase{phase=\"Running\",namespace=\"online-boutique\"}) by (pod)",
+              "legendFormat": "{{pod}}",
+              "refId": "B",
+              "hide": true
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "id": 8,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "HPA Target CPU Utilization vs 65% Target",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\",container!=\"\",container!=\"POD\"}[2m])) by (container) / sum(kube_pod_container_resource_requests{resource=\"cpu\",namespace=\"online-boutique\"}) by (container) * 100",
+              "legendFormat": "{{container}} CPU %",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+          "id": 300,
+          "title": "Tier 2: Node Elasticity (Karpenter Scale-Up & Consolidation)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 20, "lineWidth": 2, "stacking": { "group": "A", "mode": "normal" } },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+          "id": 9,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Node Elasticity Timeline (Capacity Type: Spot vs On-Demand)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or 0",
+              "legendFormat": "Spot Instances",
+              "refId": "A"
+            },
+            {
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"on-demand\"}) or 0",
+              "legendFormat": "On-Demand Instances",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+          "id": 10,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Karpenter Pod Startup Time (Pending to Running Latency)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "karpenter_pods_startup_time_seconds{quantile=\"0.99\"} or 0",
+              "legendFormat": "P99 Startup Latency",
+              "refId": "A"
+            },
+            {
+              "expr": "karpenter_pods_startup_time_seconds{quantile=\"0.50\"} or 0",
+              "legendFormat": "P50 Startup Latency",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+          "id": 400,
+          "title": "Data Tier Under Load: Redis (ElastiCache) & Aurora PostgreSQL",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "id": 11,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Redis Throughput & Cache Hit Ratio",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(redis_commands_processed_total[1m]) or 0",
+              "legendFormat": "Redis Operations / sec",
+              "refId": "A"
+            },
+            {
+              "expr": "(rate(redis_keyspace_hits_total[1m]) / (rate(redis_keyspace_hits_total[1m]) + rate(redis_keyspace_misses_total[1m])) * 100) or 100",
+              "legendFormat": "Cache Hit Ratio (%)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "id": 12,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "SQS Queue Depth vs Processing Under Load",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*email\"}",
+              "legendFormat": "Email Queue Waiting",
+              "refId": "A"
+            },
+            {
+              "expr": "aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*shipping\"}",
+              "legendFormat": "Shipping Queue Waiting",
+              "refId": "B"
+            },
+            {
+              "expr": "aws_sqs_approximate_number_of_messages_not_visible_maximum{dimension_QueueName=~\"online-boutique.*email\"}",
+              "legendFormat": "Email Queue In-Flight (Processing)",
+              "refId": "C"
+            },
+            {
+              "expr": "aws_sqs_approximate_number_of_messages_not_visible_maximum{dimension_QueueName=~\"online-boutique.*shipping\"}",
+              "legendFormat": "Shipping Queue In-Flight (Processing)",
+              "refId": "D"
+            }
+          ]
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["online-boutique", "scaling", "hpa", "karpenter", "redis", "sre"],
+      "time": { "from": "now-30m", "to": "now" },
+      "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+      "timezone": "browser",
+      "title": "Online Boutique — Autoscaling (HPA + Karpenter) & Data Tier",
+      "uid": "online-boutique-scaling-data"
+    }
