@@ -507,7 +507,7 @@ jobs:
 
           # Writable kcadm helper inside container
           kcadm() {
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh --config /tmp/kcadm.config "$@"
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config
           }
 
           # Verify kcadm server URL path matches Helm chart httpRelativePath
