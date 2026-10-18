@@ -13,7 +13,7 @@ data:
         AWS/SQS:
           - QueueName
       jobs:
-        - type: sqs
+        - type: AWS/SQS
           regions:
             - il-central-1
           searchTags:

@@ -443,15 +443,16 @@ jobs:
           fi
           echo "Using Aurora database host: ${AURORA_HOST}"
 
-          if helm status keycloak -n keycloak >/dev/null 2>&1; then
-            echo "Keycloak is already installed."
+          if kubectl get statefulset keycloak -n keycloak >/dev/null 2>&1 && [ "$(kubectl get statefulset keycloak -n keycloak -o jsonpath='{.status.readyReplicas}')" -ge 1 ] 2>/dev/null; then
+            echo "Keycloak is already installed and healthy."
           else
             helm repo add bitnami https://charts.bitnami.com/bitnami
             helm repo update
             # Key configuration:
             #  - postgresql.enabled=false: Use our external Aurora instance
             #  - proxy=edge: Trust X-Forwarded-For headers from NGINX ingress
-            #  - httpRelativePath=/auth: Keycloak served at /auth path (no domain needed)
+            #  - httpRelativePath=/auth/: Keycloak served at /auth path
+            #  - readinessProbe.httpGet.path=/auth/realms/master: Match relative path
             #  - auth.adminUser: "admin" bootstrap user matching secret
             #  - auth.existingSecret: keycloak-credentials containing KEYCLOAK_ADMIN_PASSWORD
             #  - externalDatabase.*: pointing to Aurora endpoint and synced DB credentials
@@ -473,7 +474,8 @@ jobs:
               --set externalDatabase.existingSecret="keycloak-credentials" \
               --set externalDatabase.existingSecretUserKey="KC_DB_USERNAME" \
               --set externalDatabase.existingSecretPasswordKey="KC_DB_PASSWORD" \
-              --set httpRelativePath="/auth" \
+              --set httpRelativePath="/auth/" \
+              --set readinessProbe.httpGet.path="/auth/realms/master" \
               --set production=false \
               --set proxy=edge \
               --wait --timeout 8m
@@ -503,6 +505,11 @@ jobs:
           ADMIN_USER=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN}' | base64 -d)
           ADMIN_PASS=$(kubectl get secret keycloak-credentials -n keycloak -o jsonpath='{.data.KEYCLOAK_ADMIN_PASSWORD}' | base64 -d)
 
+          # Writable kcadm helper inside container
+          kcadm() {
+            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh --config /tmp/kcadm.config "$@"
+          }
+
           # Verify kcadm server URL path matches Helm chart httpRelativePath
           CHART_HTTP_PATH="/auth"
           KCADM_SERVER="http://localhost:8080${CHART_HTTP_PATH}"
@@ -511,7 +518,7 @@ jobs:
           echo "  kcadm server endpoint:  ${KCADM_SERVER}"
 
           echo "Authenticating kcadm CLI with master realm..."
-          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh config credentials \
+          kcadm config credentials \
             --server "$KCADM_SERVER" \
             --realm master \
             --user "$ADMIN_USER" \
@@ -525,25 +532,25 @@ jobs:
           fi
 
           echo "Checking if online-boutique realm exists..."
-          if ! kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/online-boutique >/dev/null 2>&1; then
+          if ! kcadm get realms/online-boutique >/dev/null 2>&1; then
             echo "Importing online-boutique realm from JSON specification..."
             kubectl cp kubernetes/keycloak/online-boutique-realm.json keycloak/"$KEYCLOAK_POD":/tmp/realm.json
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create realms -f /tmp/realm.json
+            kcadm create realms -f /tmp/realm.json
           else
             echo "online-boutique realm exists. Ensuring roles and client are present..."
             # Ensure roles exist idempotently without failing on re-run
             for ROLE in customer admin; do
-              if ! kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get roles/"$ROLE" -r online-boutique >/dev/null 2>&1; then
+              if ! kcadm get roles/"$ROLE" -r online-boutique >/dev/null 2>&1; then
                 echo "Creating role '$ROLE' in online-boutique realm..."
-                kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create roles -r online-boutique -s name="$ROLE"
+                kcadm create roles -r online-boutique -s name="$ROLE"
               else
                 echo "Role '$ROLE' already exists in online-boutique realm."
               fi
             done
 
             # Ensure boutique-frontend client exists
-            if ! kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get clients -r online-boutique -q clientId=boutique-frontend >/dev/null 2>&1; then
-              kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh create clients -r online-boutique \
+            if ! kcadm get clients -r online-boutique -q clientId=boutique-frontend >/dev/null 2>&1; then
+              kcadm create clients -r online-boutique \
                 -s clientId=boutique-frontend \
                 -s publicClient=false \
                 -s standardFlowEnabled=true \
@@ -553,21 +560,21 @@ jobs:
           fi
 
           echo "Configuring boutique-frontend client secret and redirect URIs..."
-          CLIENT_UUID=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get clients -r online-boutique -q clientId=boutique-frontend --fields id --format csv --noquotes)
+          CLIENT_UUID=$(kcadm get clients -r online-boutique -q clientId=boutique-frontend --fields id --format csv --noquotes)
           if [ -n "$CLIENT_UUID" ]; then
-            kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update clients/"$CLIENT_UUID" -r online-boutique \
+            kcadm update clients/"$CLIENT_UUID" -r online-boutique \
               -s secret="$CLIENT_SECRET" \
               -s publicClient=false \
               -s "redirectUris=[\"http://*\", \"https://*\"]"
           fi
 
           echo "Applying sslRequired=${EXPECTED_SSL} to both master and online-boutique realms..."
-          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/master -s sslRequired="${EXPECTED_SSL}"
-          kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh update realms/online-boutique -s sslRequired="${EXPECTED_SSL}" -s registrationAllowed=true
+          kcadm update realms/master -s sslRequired="${EXPECTED_SSL}"
+          kcadm update realms/online-boutique -s sslRequired="${EXPECTED_SSL}" -s registrationAllowed=true
 
           echo "Verifying sslRequired configuration for both realms..."
-          MASTER_SSL=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/master --fields sslRequired --format csv --noquotes)
-          BOUTIQUE_SSL=$(kubectl exec -n keycloak "$KEYCLOAK_POD" -- /opt/bitnami/keycloak/bin/kcadm.sh get realms/online-boutique --fields sslRequired --format csv --noquotes)
+          MASTER_SSL=$(kcadm get realms/master --fields sslRequired --format csv --noquotes)
+          BOUTIQUE_SSL=$(kcadm get realms/online-boutique --fields sslRequired --format csv --noquotes)
           echo "  master realm sslRequired:          ${MASTER_SSL} (expected: ${EXPECTED_SSL})"
           echo "  online-boutique realm sslRequired: ${BOUTIQUE_SSL} (expected: ${EXPECTED_SSL})"
 
