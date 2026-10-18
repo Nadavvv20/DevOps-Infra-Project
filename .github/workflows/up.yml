@@ -573,8 +573,8 @@ jobs:
           kcadm update realms/online-boutique -s sslRequired="${EXPECTED_SSL}" -s registrationAllowed=true
 
           echo "Verifying sslRequired configuration for both realms..."
-          MASTER_SSL=$(kcadm get realms/master --fields sslRequired --format csv --noquotes)
-          BOUTIQUE_SSL=$(kcadm get realms/online-boutique --fields sslRequired --format csv --noquotes)
+          MASTER_SSL=$(kcadm get realms/master --fields sslRequired --format csv --noquotes | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n')
+          BOUTIQUE_SSL=$(kcadm get realms/online-boutique --fields sslRequired --format csv --noquotes | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n')
           echo "  master realm sslRequired:          ${MASTER_SSL} (expected: ${EXPECTED_SSL})"
           echo "  online-boutique realm sslRequired: ${BOUTIQUE_SSL} (expected: ${EXPECTED_SSL})"
 
