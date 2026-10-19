@@ -90,38 +90,40 @@ jobs:
         if: steps.kubeconfig.outputs.cluster_found == 'true'
         run: |
           echo "Deleting all Ingress resources across all namespaces..."
-          kubectl delete ingress --all --all-namespaces --ignore-not-found --timeout=3m
+          kubectl delete ingress --all --all-namespaces --ignore-not-found --timeout=3m || true
 
           echo "Deleting all Services of type LoadBalancer across all namespaces..."
-          kubectl delete svc --all-namespaces --field-selector spec.type=LoadBalancer --ignore-not-found --timeout=3m
-          kubectl delete svc -n ingress-nginx ingress-nginx-controller --ignore-not-found --timeout=3m
+          kubectl delete svc --all-namespaces --field-selector spec.type=LoadBalancer --ignore-not-found --timeout=3m || true
+          kubectl delete svc -n ingress-nginx ingress-nginx-controller --ignore-not-found --timeout=3m || true
           
-          echo "Deleting ArgoCD Application for online-boutique and stripping finalizers..."
-          kubectl patch application online-boutique -n argocd --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null || true
-          kubectl delete application online-boutique -n argocd --ignore-not-found --timeout=30s
-          kubectl delete appproject online-boutique -n argocd --ignore-not-found --timeout=30s
+          echo "Stripping finalizers and deleting ArgoCD Application & AppProject for online-boutique..."
+          kubectl patch application online-boutique -n argocd -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+          kubectl delete application online-boutique -n argocd --ignore-not-found --wait=false 2>/dev/null || true
+          kubectl patch appproject online-boutique -n argocd -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+          kubectl delete appproject online-boutique -n argocd --ignore-not-found --wait=false 2>/dev/null || true
 
           echo "Uninstalling online-boutique Helm release and workloads..."
-          helm uninstall online-boutique -n online-boutique --ignore-not-found
-          kubectl delete rollouts.argoproj.io --all -n online-boutique --ignore-not-found --timeout=1m
-          kubectl delete all --all -n online-boutique --ignore-not-found --timeout=2m
-          kubectl delete ns online-boutique --ignore-not-found --timeout=2m || true
+          helm uninstall online-boutique -n online-boutique --ignore-not-found || true
+          kubectl patch rollouts.argoproj.io --all -n online-boutique -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+          kubectl delete rollouts.argoproj.io --all -n online-boutique --ignore-not-found --wait=false 2>/dev/null || true
+          kubectl delete all --all -n online-boutique --ignore-not-found --wait=false 2>/dev/null || true
+          kubectl delete ns online-boutique --ignore-not-found --wait=false 2>/dev/null || true
 
           echo "Uninstalling other Helm releases and cleaning namespaces..."
-          helm uninstall keycloak -n keycloak --ignore-not-found
-          kubectl delete ns keycloak --ignore-not-found --timeout=1m || true
-          helm uninstall argo-rollouts -n argo-rollouts --ignore-not-found
-          helm uninstall argocd -n argocd --ignore-not-found
-          helm uninstall opencost -n opencost --ignore-not-found
-          kubectl delete ns opencost --ignore-not-found --timeout=1m || true
-          helm uninstall prometheus -n monitoring --ignore-not-found
-          helm uninstall external-secrets -n external-secrets --ignore-not-found
-          helm uninstall ingress-nginx -n ingress-nginx --ignore-not-found
-          helm uninstall karpenter -n kube-system --ignore-not-found
-          helm uninstall karpenter-crd -n kube-system --ignore-not-found
+          helm uninstall keycloak -n keycloak --ignore-not-found || true
+          kubectl delete ns keycloak --ignore-not-found --wait=false 2>/dev/null || true
+          helm uninstall argo-rollouts -n argo-rollouts --ignore-not-found || true
+          helm uninstall argocd -n argocd --ignore-not-found || true
+          helm uninstall opencost -n opencost --ignore-not-found || true
+          kubectl delete ns opencost --ignore-not-found --wait=false 2>/dev/null || true
+          helm uninstall prometheus -n monitoring --ignore-not-found || true
+          helm uninstall external-secrets -n external-secrets --ignore-not-found || true
+          helm uninstall ingress-nginx -n ingress-nginx --ignore-not-found || true
+          helm uninstall karpenter -n kube-system --ignore-not-found || true
+          helm uninstall karpenter-crd -n kube-system --ignore-not-found || true
 
           echo "Deleting Karpenter NodeClaims to cleanly release dynamic EC2 instances..."
-          kubectl delete nodeclaims --all --ignore-not-found --timeout=2m
+          kubectl delete nodeclaims --all --ignore-not-found --wait=false 2>/dev/null || true
 
           echo "Waiting for AWS cloud load balancers and ENIs to be released..."
           for i in $(seq 1 18); do
@@ -170,7 +172,7 @@ jobs:
       - name: Terraform Targeted Destroy
         run: |
           if [ "${{ github.event.inputs.keep_vpc }}" == "true" ]; then
-            echo "Targeted destroy: Deleting EKS, Karpenter, DBs, SQS, Keycloak secrets, and IAM while PRESERVING VPC..."
+            echo "Targeted destroy: Deleting EKS, Karpenter, DBs, SQS, Keycloak secrets, Ads CDN, and IAM while PRESERVING VPC..."
             terraform destroy -auto-approve \
               -target=module.eks \
               -target=module.karpenter \
@@ -178,6 +180,7 @@ jobs:
               -target=module.elasticache \
               -target=module.sqs \
               -target=module.secrets_manager \
+              -target=module.ads_cdn \
               -target=module.iam_roles
             echo "EKS and Databases destroyed. VPC and ECR retained."
           else
