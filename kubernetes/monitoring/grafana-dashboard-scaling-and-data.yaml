@@ -214,7 +214,7 @@ data:
               "color": { "mode": "palette-classic" },
               "mappings": [],
               "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
-              "unit": "short"
+              "unit": "percent"
             },
             "overrides": []
           },
@@ -232,8 +232,8 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or vector(0)",
-              "legendFormat": "Spot Nodes",
+              "expr": "((count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"} or kube_node_labels{label_eks_amazonaws_com_capacity_type=\"SPOT\"}) or vector(0)) / (count(kube_node_info) or vector(1))) * 100",
+              "legendFormat": "Spot Ratio %",
               "refId": "A"
             }
           ]
@@ -330,12 +330,12 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or vector(0)",
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"} or kube_node_labels{label_eks_amazonaws_com_capacity_type=\"SPOT\"}) or vector(0)",
               "legendFormat": "Spot Instances",
               "refId": "A"
             },
             {
-              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"on-demand\"}) or vector(0)",
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"on-demand\"} or kube_node_labels{label_eks_amazonaws_com_capacity_type=\"ON_DEMAND\"}) or vector(0)",
               "legendFormat": "On-Demand Instances",
               "refId": "B"
             }
