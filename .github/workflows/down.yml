@@ -174,8 +174,8 @@ jobs:
         if: always()
         run: |
           CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
-          chmod +x ../../scripts/purge-deleted-secrets.sh
-          ../../scripts/purge-deleted-secrets.sh \
+          chmod +x "${GITHUB_WORKSPACE}/scripts/purge-deleted-secrets.sh"
+          "${GITHUB_WORKSPACE}/scripts/purge-deleted-secrets.sh" \
             --region "${{ github.event.inputs.aws_region }}" \
             --prefix "${CLUSTER_NAME}" \
             --yes

@@ -9,8 +9,9 @@ data "aws_cloudfront_response_headers_policy" "cors" {
 }
 
 resource "aws_s3_bucket" "ads" {
-  bucket = "${var.cluster_name}-ads-media-${data.aws_caller_identity.current.account_id}"
-  tags   = var.tags
+  bucket        = "${var.cluster_name}-ads-media-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true
+  tags          = var.tags
 }
 
 resource "aws_s3_bucket_public_access_block" "ads" {
