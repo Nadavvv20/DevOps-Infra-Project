@@ -37,7 +37,7 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "rate(inventory_reservations_total[1m])",
+              "expr": "sum(rate(inventory_reservations_total[1m])) by (result)",
               "legendFormat": "{{result}}",
               "refId": "A"
             }
@@ -114,7 +114,7 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "rate(inventory_hold_expired_total[1m])",
+              "expr": "sum(rate(inventory_hold_expired_total[1m]))",
               "legendFormat": "Restored Expired Holds/sec",
               "refId": "A"
             }
@@ -129,12 +129,12 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "rate(productcatalog_cache_hits_total[1m])",
+              "expr": "sum(rate(productcatalog_cache_hits_total[1m]))",
               "legendFormat": "Cache Hits/sec",
               "refId": "A"
             },
             {
-              "expr": "rate(productcatalog_cache_misses_total[1m])",
+              "expr": "sum(rate(productcatalog_cache_misses_total[1m]))",
               "legendFormat": "Cache Misses/sec",
               "refId": "B"
             }
