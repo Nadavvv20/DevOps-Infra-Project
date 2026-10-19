@@ -48,3 +48,9 @@ spec:
       name: frontend
       jsonPointers:
         - /spec/template/spec/containers/0/env
+    - group: apps
+      kind: Deployment
+      name: loadgenerator
+      jsonPointers:
+        - /spec/template/spec/containers/0/env
+        - /spec/replicas

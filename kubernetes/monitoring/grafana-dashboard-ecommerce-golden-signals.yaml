@@ -49,7 +49,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "(sum(rate(nginx_ingress_controller_requests[1m])) or sum(rate(nginx_ingress_controller_nginx_process_requests_total[1m])) or vector(0))",
+              "expr": "(sum(rate(nginx_ingress_controller_nginx_process_requests_total[1m])) or vector(0))",
               "legendFormat": "RPS",
               "refId": "A"
             }
@@ -163,7 +163,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "(sum(rate(grpc_client_handled_total{grpc_method=\"PlaceOrder\",grpc_code=\"OK\"}[1m])) * 60) or (sum(rate(aws_sqs_approximate_number_of_messages_not_visible_maximum{dimension_QueueName=~\"online-boutique.*\"}[1m])) * 60) or vector(0)",
+              "expr": "(sum(rate(inventory_reservations_total{result=\"ok\"}[1m])) * 60) or vector(0)",
               "legendFormat": "Orders/min",
               "refId": "A"
             }
@@ -179,8 +179,8 @@ data:
                 "mode": "absolute",
                 "steps": [
                   { "color": "green", "value": null },
-                  { "color": "yellow", "value": 10 },
-                  { "color": "red", "value": 50 }
+                  { "color": "yellow", "value": 100 },
+                  { "color": "blue", "value": 500 }
                 ]
               },
               "unit": "short"
@@ -197,12 +197,12 @@ data:
             "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
             "textMode": "auto"
           },
-          "title": "SQS In-Flight Queue Depth",
+          "title": "Active Cart Holds (In-Flight)",
           "type": "stat",
           "targets": [
             {
-              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*email|online-boutique.*shipping\"}) or vector(0)",
-              "legendFormat": "Pending Orders",
+              "expr": "sum(inventory_active_holds) or vector(0)",
+              "legendFormat": "Active Holds",
               "refId": "A"
             }
           ]
@@ -234,12 +234,12 @@ data:
             "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
             "textMode": "auto"
           },
-          "title": "Dead-Letter Queue (DLQ) Alerts",
+          "title": "Out-of-Stock / Error Alerts",
           "type": "stat",
           "targets": [
             {
-              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*dlq\"}) or vector(0)",
-              "legendFormat": "DLQ Messages",
+              "expr": "sum(inventory_reservations_total{result=\"out_of_stock\"}) or vector(0)",
+              "legendFormat": "Out of Stock",
               "refId": "A"
             }
           ]
@@ -276,29 +276,24 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=~\"frontend.*\"}[2m])) by (le)) * 1000",
-              "legendFormat": "frontend - p99",
+              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000",
+              "legendFormat": "Ingress Edge - P99 (ms)",
               "refId": "A"
             },
             {
-              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=~\"frontend.*\"}[2m])) by (le)) * 1000",
-              "legendFormat": "frontend - p50",
+              "expr": "histogram_quantile(0.90, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000",
+              "legendFormat": "Ingress Edge - P90 (ms)",
               "refId": "B"
             },
             {
-              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"hipstershop.CheckoutService\"}[2m])) by (le)) * 1000",
-              "legendFormat": "checkoutservice - p99",
+              "expr": "histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000",
+              "legendFormat": "Ingress Edge - P50 (ms)",
               "refId": "C"
             },
             {
-              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"hipstershop.CartService\"}[2m])) by (le)) * 1000",
-              "legendFormat": "cartservice - p99",
+              "expr": "(sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_sum[2m])) / sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_count[2m]))) * 1000",
+              "legendFormat": "Upstream Service Latency (ms)",
               "refId": "D"
-            },
-            {
-              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"hipstershop.ProductCatalogService\"}[2m])) by (le)) * 1000",
-              "legendFormat": "productcatalogservice - p99",
-              "refId": "E"
             }
           ]
         },
@@ -322,18 +317,18 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "(histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
+              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000",
               "legendFormat": "Ingress Edge P99",
               "refId": "A"
             },
             {
-              "expr": "(histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
+              "expr": "histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000",
               "legendFormat": "Ingress Edge P50",
               "refId": "B"
             },
             {
-              "expr": "(histogram_quantile(0.99, sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
-              "legendFormat": "Upstream Pod P99",
+              "expr": "(sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_sum[2m])) / sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_count[2m]))) * 1000",
+              "legendFormat": "Upstream Response Time",
               "refId": "C"
             }
           ]
@@ -457,23 +452,23 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"GetProduct\"}[1m]))",
-              "legendFormat": "1. Product Views (Browsing)",
+              "expr": "sum(rate(nginx_ingress_controller_requests{status=\"200\",method=\"GET\"}[1m]))",
+              "legendFormat": "1. Catalog Browsing (req/s)",
               "refId": "A"
             },
             {
-              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"AddItem\"}[1m]))",
-              "legendFormat": "2. Add to Cart",
+              "expr": "rate(inventory_active_holds[1m]) * 60",
+              "legendFormat": "2. In-Flight Cart Additions (/min)",
               "refId": "B"
             },
             {
-              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"PlaceOrder\"}[1m]))",
-              "legendFormat": "3. Checkout Initiated",
+              "expr": "sum(rate(nginx_ingress_controller_requests{method=\"POST\"}[1m]))",
+              "legendFormat": "3. Checkout Initiated (req/s)",
               "refId": "C"
             },
             {
-              "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"PlaceOrder\",grpc_code=\"OK\"}[1m]))",
-              "legendFormat": "4. Order Completed (Success)",
+              "expr": "sum(rate(inventory_reservations_total{result=\"ok\"}[1m])) * 60",
+              "legendFormat": "4. Order Placed (/min)",
               "refId": "D"
             }
           ]
@@ -494,22 +489,22 @@ data:
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
-          "title": "Event-Driven Fan-Out Rate (SNS -> SQS Queues)",
+          "title": "Data Tier Performance (Redis Cache & Inventory DB)",
           "type": "timeseries",
           "targets": [
             {
-              "expr": "rate(aws_sqs_number_of_messages_sent_sum{dimension_QueueName=~\"online-boutique.*email\"}[1m]) * 60",
-              "legendFormat": "SQS Email Queue (msg/min)",
+              "expr": "sum(rate(productcatalog_cache_hits_total[1m]))",
+              "legendFormat": "Redis Cache Hits (ops/s)",
               "refId": "A"
             },
             {
-              "expr": "rate(aws_sqs_number_of_messages_sent_sum{dimension_QueueName=~\"online-boutique.*shipping\"}[1m]) * 60",
-              "legendFormat": "SQS Shipping Queue (msg/min)",
+              "expr": "sum(rate(productcatalog_cache_misses_total[1m]))",
+              "legendFormat": "Redis Cache Misses (ops/s)",
               "refId": "B"
             },
             {
-              "expr": "rate(inventory_reservations_total{result=\"success\"}[1m]) * 60",
-              "legendFormat": "Inventory Holds (holds/min)",
+              "expr": "inventory_active_holds",
+              "legendFormat": "Inventory Active Holds",
               "refId": "C"
             }
           ]
