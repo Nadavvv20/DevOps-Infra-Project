@@ -12,7 +12,7 @@ spec:
       requirements:
         - key: karpenter.sh/capacity-type
           operator: In
-          values: ["spot", "on-demand"]
+          values: ["spot"]
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
@@ -22,9 +22,14 @@ spec:
         - key: karpenter.k8s.aws/instance-generation
           operator: Gt
           values: ["2"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["small", "medium"]
   limits:
-    cpu: "100"
-    memory: 400Gi
+    cpu: "8"
+    memory: 16Gi
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 1m
+    consolidateAfter: 30s
+    budgets:
+      - nodes: "100%"
