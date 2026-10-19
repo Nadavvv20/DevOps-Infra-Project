@@ -266,7 +266,7 @@ data:
               }
             ]
           },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
           "id": 7,
           "options": {
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
@@ -289,11 +289,47 @@ data:
               "expr": "histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000",
               "legendFormat": "Ingress Edge - P50 (ms)",
               "refId": "C"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 25, "lineWidth": 2, "spanNulls": true },
+              "unit": "ms"
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byRegexp", "options": ".*[pP]99.*" },
+                "properties": [{ "id": "custom.lineWidth", "value": 3 }]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+          "id": 75,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "Checkout Latency (Place Order — POST)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{method=\"POST\"}[2m])) by (le)) * 1000",
+              "legendFormat": "Checkout P99 (ms)",
+              "refId": "A"
             },
             {
-              "expr": "(sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_sum[2m])) / sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_count[2m]))) * 1000",
-              "legendFormat": "Upstream Service Latency (ms)",
-              "refId": "D"
+              "expr": "histogram_quantile(0.90, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{method=\"POST\"}[2m])) by (le)) * 1000",
+              "legendFormat": "Checkout P90 (ms)",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{method=\"POST\"}[2m])) by (le)) * 1000",
+              "legendFormat": "Checkout P50 (ms)",
+              "refId": "C"
             }
           ]
         },
@@ -307,7 +343,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
           "id": 8,
           "options": {
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
