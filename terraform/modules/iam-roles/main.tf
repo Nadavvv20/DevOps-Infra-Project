@@ -228,3 +228,45 @@ resource "aws_iam_role_policy" "yace_sqs_exporter" {
   })
 }
 
+# ── AdService IRSA Role (S3 Read Access) ────────────────────────────────────
+resource "aws_iam_role" "adservice_s3" {
+  name = "${var.cluster_name}-adservice-s3"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Principal = { Federated = var.oidc_provider_arn }
+      Condition = {
+        StringEquals = {
+          "${var.oidc_issuer_url}:sub" = "system:serviceaccount:default:adservice"
+          "${var.oidc_issuer_url}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "adservice_s3" {
+  name = "s3-read-ads-media"
+  role = aws_iam_role.adservice_s3.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:ListBucket"]
+        Resource = [
+          var.ads_bucket_arn,
+          "${var.ads_bucket_arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+

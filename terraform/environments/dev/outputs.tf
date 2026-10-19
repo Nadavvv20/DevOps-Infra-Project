@@ -52,3 +52,24 @@ output "aurora_endpoint" {
   description = "Aurora / RDS PostgreSQL cluster endpoint"
   value       = module.rds_aurora.cluster_endpoint
 }
+
+output "ads_s3_bucket_name" {
+  description = "Name of the S3 bucket storing ad banners and catalog"
+  value       = module.ads_cdn.bucket_name
+}
+
+output "ads_cloudfront_domain_name" {
+  description = "CloudFront CDN domain name for ads"
+  value       = module.ads_cdn.cloudfront_domain_name
+}
+
+output "ads_cloudfront_distribution_id" {
+  description = "CloudFront distribution ID"
+  value       = module.ads_cdn.cloudfront_distribution_id
+}
+
+output "adservice_role_arn" {
+  description = "IRSA role ARN for adservice S3 read access"
+  value       = module.iam_roles.adservice_role_arn
+}
+

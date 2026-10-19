@@ -128,9 +128,17 @@ module "ecr" {
   tags         = local.common_tags
 }
 
+# ── Ads Media CDN (S3 + CloudFront OAC) ──────────────────────────────────────
+# Powers high-efficiency ad banner serving with edge caching and zero direct S3 egress.
+module "ads_cdn" {
+  source = "../../modules/ads-cdn"
+
+  cluster_name = local.cluster_name
+  tags         = local.common_tags
+}
+
 # ── IAM Roles (IRSA) ──────────────────────────────────────────────────────────
-# Updated: now receives SQS ARNs so it can create scoped policies for
-# checkoutservice (producer) and emailservice/shippingservice (consumers).
+# Updated: now receives SQS ARNs and Ads S3 ARN for IRSA policies.
 module "iam_roles" {
   source = "../../modules/iam-roles"
 
@@ -152,6 +160,8 @@ module "iam_roles" {
   email_dlq_arn          = module.sqs.email_dlq_arn
   shipping_queue_arn     = module.sqs.shipping_queue_arn
   shipping_dlq_arn       = module.sqs.shipping_dlq_arn
+  ads_bucket_arn         = module.ads_cdn.bucket_arn
 
   tags = local.common_tags
 }
+

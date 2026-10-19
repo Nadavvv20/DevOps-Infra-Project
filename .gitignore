@@ -50,3 +50,5 @@ helm/*/Chart.lock
 
 # Scratch
 scratch/
+
+ad-images/

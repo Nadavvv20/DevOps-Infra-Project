@@ -29,3 +29,9 @@ output "yace_exporter_role_arn" {
   description = "IRSA role ARN for YACE CloudWatch exporter."
   value       = aws_iam_role.yace_sqs_exporter.arn
 }
+
+output "adservice_role_arn" {
+  description = "IRSA role ARN for adservice (S3 read access)."
+  value       = aws_iam_role.adservice_s3.arn
+}
+

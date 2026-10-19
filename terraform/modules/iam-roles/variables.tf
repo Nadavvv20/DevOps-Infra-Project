@@ -42,6 +42,11 @@ variable "shipping_dlq_arn" {
   description = "ARN of the shipping SQS dead-letter queue."
 }
 
+variable "ads_bucket_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of the S3 ads media bucket for adservice read access."
+}
 
 variable "tags" {
   type    = map(string)
