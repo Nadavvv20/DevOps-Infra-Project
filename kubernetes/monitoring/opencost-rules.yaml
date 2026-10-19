@@ -1,0 +1,54 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opencost-finops-rules
+  namespace: monitoring
+  labels:
+    release: prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: opencost.finops
+      rules:
+        - alert: OpenCostFinOpsHeartbeat
+          expr: sum(node_total_hourly_cost) > 0.01
+          labels:
+            severity: info
+            category: finops
+            namespace: monitoring
+          annotations:
+            summary: "OpenCost FinOps Integration Online"
+            description: "OpenCost is actively monitoring AWS il-central-1 infrastructure costs. Current cluster burn rate is ${{ $value | printf \"%.3f\" }}/hr."
+
+        - alert: KubernetesHighCostBurnRate
+          expr: sum(node_total_hourly_cost) > 1.00
+          for: 2m
+          labels:
+            severity: warning
+            category: finops
+            namespace: monitoring
+          annotations:
+            summary: "Kubernetes Cluster Cost Burn Rate High"
+            description: "The cluster compute burn rate is currently ${{ $value | printf \"%.2f\" }}/hr, which exceeds the budget threshold of $1.00/hr (~$720/month)."
+
+        - alert: OpenCostExpensiveNodeProvisioned
+          expr: node_total_hourly_cost > 0.15
+          for: 2m
+          labels:
+            severity: warning
+            category: finops
+            namespace: monitoring
+          annotations:
+            summary: "Expensive Node Detected by OpenCost"
+            description: "Node {{ $labels.node }} ({{ $labels.instance_type }}) in region {{ $labels.region }} has an hourly cost of ${{ $value | printf \"%.3f\" }}/hr."
+
+        - alert: OpenCostClusterCostDailyBudgetSurge
+          expr: sum(node_total_hourly_cost) * 24 > 15.0
+          for: 2m
+          labels:
+            severity: critical
+            category: finops
+            namespace: monitoring
+          annotations:
+            summary: "Cluster Projected Daily Cost Exceeds Budget"
+            description: "Projected daily compute cost is ${{ $value | printf \"%.2f\" }}/day, exceeding the $15.00/day limit."

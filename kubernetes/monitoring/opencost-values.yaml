@@ -1,0 +1,22 @@
+opencost:
+  exporter:
+    defaultClusterId: "online-boutique-dev"
+    extraEnv:
+      AWS_DEFAULT_REGION: "il-central-1"
+      AWS_REGION: "il-central-1"
+  metrics:
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: prometheus
+  prometheus:
+    internal:
+      enabled: true
+      serviceName: prometheus-kube-prometheus-prometheus
+      namespaceName: monitoring
+      port: 9090
+  ui:
+    enabled: true
+
+service:
+  type: ClusterIP

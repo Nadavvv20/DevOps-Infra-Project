@@ -362,10 +362,33 @@ jobs:
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/sqs-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/keycloak-external-secret.yaml | kubectl apply -f -
             sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/frontend-keycloak-external-secret.yaml | kubectl apply -f -
+            sed "s/{{CLUSTER_NAME}}/${CLUSTER_NAME}/g" kubernetes/external-secrets/slack-external-secret.yaml | kubectl apply -f -
 
             echo "Waiting for ExternalSecrets in online-boutique to sync..."
             kubectl wait --for=condition=Ready externalsecret/sqs-config -n online-boutique --timeout=90s || true
+            echo "Waiting for alertmanager-slack-webhook in monitoring to sync..."
+            kubectl wait --for=condition=Ready externalsecret/alertmanager-slack-webhook -n monitoring --timeout=90s || true
           fi
+
+      - name: Install OpenCost & FinOps Slack Alerting
+        run: |
+          if helm status opencost -n opencost >/dev/null 2>&1; then
+            echo "OpenCost is already installed."
+          else
+            echo "Installing OpenCost Helm chart..."
+            helm repo add opencost https://opencost.github.io/opencost-helm-chart
+            helm repo update
+            helm upgrade --install opencost opencost/opencost \
+              --version "2.5.33" \
+              --namespace opencost \
+              --create-namespace \
+              -f kubernetes/monitoring/opencost-values.yaml \
+              --wait --timeout 5m
+          fi
+
+          echo "Applying OpenCost AlertmanagerConfig and PrometheusRules..."
+          kubectl apply -f kubernetes/monitoring/alertmanager-finops-slack.yaml
+          kubectl apply -f kubernetes/monitoring/opencost-rules.yaml
 
       - name: Pre-create Keycloak Database on Aurora
         run: |

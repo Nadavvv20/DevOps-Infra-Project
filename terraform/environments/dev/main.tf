@@ -153,6 +153,7 @@ module "iam_roles" {
     module.sqs.secret_arn,
     module.secrets_manager.keycloak_secret_arn,
     module.secrets_manager.keycloak_client_secret_arn,
+    "arn:aws:secretsmanager:il-central-1:*:secret:${local.cluster_name}/slack/*",
   ]
 
   order_events_topic_arn = module.sqs.order_events_topic_arn

@@ -97,6 +97,7 @@ jobs:
           helm uninstall keycloak -n keycloak --ignore-not-found
           helm uninstall argo-rollouts -n argo-rollouts --ignore-not-found
           helm uninstall argocd -n argocd --ignore-not-found
+          helm uninstall opencost -n opencost --ignore-not-found
           helm uninstall prometheus -n monitoring --ignore-not-found
           helm uninstall external-secrets -n external-secrets --ignore-not-found
           helm uninstall ingress-nginx -n ingress-nginx --ignore-not-found

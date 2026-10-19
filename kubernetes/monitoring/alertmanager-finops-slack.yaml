@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: finops-slack-alerts
+  namespace: monitoring
+  labels:
+    alertmanagerConfig: finops
+spec:
+  route:
+    groupBy: ['alertname', 'namespace']
+    groupWait: 10s
+    groupInterval: 1m
+    repeatInterval: 4h
+    receiver: 'finops-discard'
+    routes:
+      - matchers:
+          - name: alertname
+            value: '(OpenCost.*|FinOps.*|KubernetesHighCostBurnRate)'
+            matchType: '=~'
+        receiver: 'slack-finops'
+  receivers:
+    - name: 'finops-discard'
+    - name: 'slack-finops'
+      slackConfigs:
+        - channel: '#finops'
+          apiURL:
+            name: alertmanager-slack-webhook
+            key: webhook_url
+          sendResolved: true
+          iconEmoji: ':moneybag:'
+          username: 'OpenCost FinOps Bot'
+          title: '{{ template "slack.default.title" . }}'
+          text: >-
+            *{{ .CommonAnnotations.summary }}*
+            >{{ .CommonAnnotations.description }}
+            *Severity:* `{{ .CommonLabels.severity }}`
+            *Namespace:* `{{ .CommonLabels.namespace }}`
