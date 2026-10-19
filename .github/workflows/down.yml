@@ -96,17 +96,32 @@ jobs:
           kubectl delete svc --all-namespaces --field-selector spec.type=LoadBalancer --ignore-not-found --timeout=3m
           kubectl delete svc -n ingress-nginx ingress-nginx-controller --ignore-not-found --timeout=3m
           
-          echo "Uninstalling Helm releases (ignoring if not found)..."
+          echo "Deleting ArgoCD Application for online-boutique and stripping finalizers..."
+          kubectl patch application online-boutique -n argocd --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null || true
+          kubectl delete application online-boutique -n argocd --ignore-not-found --timeout=30s
+          kubectl delete appproject online-boutique -n argocd --ignore-not-found --timeout=30s
+
+          echo "Uninstalling online-boutique Helm release and workloads..."
           helm uninstall online-boutique -n online-boutique --ignore-not-found
+          kubectl delete rollouts.argoproj.io --all -n online-boutique --ignore-not-found --timeout=1m
+          kubectl delete all --all -n online-boutique --ignore-not-found --timeout=2m
+          kubectl delete ns online-boutique --ignore-not-found --timeout=2m || true
+
+          echo "Uninstalling other Helm releases and cleaning namespaces..."
           helm uninstall keycloak -n keycloak --ignore-not-found
+          kubectl delete ns keycloak --ignore-not-found --timeout=1m || true
           helm uninstall argo-rollouts -n argo-rollouts --ignore-not-found
           helm uninstall argocd -n argocd --ignore-not-found
           helm uninstall opencost -n opencost --ignore-not-found
+          kubectl delete ns opencost --ignore-not-found --timeout=1m || true
           helm uninstall prometheus -n monitoring --ignore-not-found
           helm uninstall external-secrets -n external-secrets --ignore-not-found
           helm uninstall ingress-nginx -n ingress-nginx --ignore-not-found
           helm uninstall karpenter -n kube-system --ignore-not-found
           helm uninstall karpenter-crd -n kube-system --ignore-not-found
+
+          echo "Deleting Karpenter NodeClaims to cleanly release dynamic EC2 instances..."
+          kubectl delete nodeclaims --all --ignore-not-found --timeout=2m
 
           echo "Waiting for AWS cloud load balancers and ENIs to be released..."
           for i in $(seq 1 18); do
