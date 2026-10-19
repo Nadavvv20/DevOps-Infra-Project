@@ -49,7 +49,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "count(kube_pod_status_phase{phase=\"Running\",namespace=\"online-boutique\"}) or 0",
+              "expr": "count(kube_pod_status_phase{phase=\"Running\",namespace=\"online-boutique\"}) or vector(0)",
               "legendFormat": "Pods",
               "refId": "A"
             }
@@ -87,7 +87,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "count(kube_node_info) or 0",
+              "expr": "count(kube_node_info) or vector(0)",
               "legendFormat": "Nodes",
               "refId": "A"
             }
@@ -125,7 +125,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "sum(kube_pod_status_phase{phase=\"Pending\",namespace=\"online-boutique\"}) or 0",
+              "expr": "sum(kube_pod_status_phase{phase=\"Pending\",namespace=\"online-boutique\"}) or vector(0)",
               "legendFormat": "Pending",
               "refId": "A"
             }
@@ -232,7 +232,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or 0",
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or vector(0)",
               "legendFormat": "Spot Nodes",
               "refId": "A"
             }
@@ -330,12 +330,12 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or 0",
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"spot\"}) or vector(0)",
               "legendFormat": "Spot Instances",
               "refId": "A"
             },
             {
-              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"on-demand\"}) or 0",
+              "expr": "count(kube_node_labels{label_karpenter_sh_capacity_type=\"on-demand\"}) or vector(0)",
               "legendFormat": "On-Demand Instances",
               "refId": "B"
             }
@@ -361,12 +361,12 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "karpenter_pods_startup_time_seconds{quantile=\"0.99\"} or 0",
+              "expr": "karpenter_pods_startup_time_seconds{quantile=\"0.99\"} or vector(0)",
               "legendFormat": "P99 Startup Latency",
               "refId": "A"
             },
             {
-              "expr": "karpenter_pods_startup_time_seconds{quantile=\"0.50\"} or 0",
+              "expr": "karpenter_pods_startup_time_seconds{quantile=\"0.50\"} or vector(0)",
               "legendFormat": "P50 Startup Latency",
               "refId": "B"
             }
@@ -399,12 +399,12 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "rate(redis_commands_processed_total[1m]) or 0",
+              "expr": "rate(redis_commands_processed_total[1m]) or vector(0)",
               "legendFormat": "Redis Operations / sec",
               "refId": "A"
             },
             {
-              "expr": "(rate(redis_keyspace_hits_total[1m]) / (rate(redis_keyspace_hits_total[1m]) + rate(redis_keyspace_misses_total[1m])) * 100) or 100",
+              "expr": "((rate(redis_keyspace_hits_total[1m]) / (rate(redis_keyspace_hits_total[1m]) + rate(redis_keyspace_misses_total[1m]))) * 100) or vector(100)",
               "legendFormat": "Cache Hit Ratio (%)",
               "refId": "B"
             }

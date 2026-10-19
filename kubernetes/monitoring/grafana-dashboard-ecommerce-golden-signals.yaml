@@ -49,7 +49,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\"}[1m])) or sum(rate(http_requests_total{namespace=\"online-boutique\"}[1m])) or 0",
+              "expr": "(sum(rate(nginx_ingress_controller_requests[1m])) or sum(rate(nginx_ingress_controller_nginx_process_requests_total[1m])) or vector(0))",
               "legendFormat": "RPS",
               "refId": "A"
             }
@@ -88,7 +88,7 @@ data:
           "type": "gauge",
           "targets": [
             {
-              "expr": "clamp_max((1 - (sum(rate(http_requests_total{status=~\"5..\"}[5m])) or sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[5m])) or 0) / (sum(rate(http_requests_total[5m])) or sum(rate(nginx_ingress_controller_requests[5m])) or 1)) * 100, 100)",
+              "expr": "100 - (100 * (sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[5m])) or vector(0)) / (sum(rate(nginx_ingress_controller_requests[5m])) or vector(1)))",
               "legendFormat": "Availability %",
               "refId": "A"
             }
@@ -126,7 +126,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "(histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"online-boutique\"}[2m])) by (le)) * 1000) or (histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000) or 0",
+              "expr": "(histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
               "legendFormat": "P99 (ms)",
               "refId": "A"
             }
@@ -163,7 +163,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "(sum(rate(grpc_server_handled_total{grpc_method=\"PlaceOrder\",grpc_code=\"OK\"}[1m])) * 60) or (sum(rate(aws_sqs_number_of_messages_sent_sum{dimension_QueueName=~\"online-boutique.*\"}[1m])) * 60) or 0",
+              "expr": "(sum(rate(grpc_client_handled_total{grpc_method=\"PlaceOrder\",grpc_code=\"OK\"}[1m])) * 60) or (sum(rate(aws_sqs_approximate_number_of_messages_not_visible_maximum{dimension_QueueName=~\"online-boutique.*\"}[1m])) * 60) or vector(0)",
               "legendFormat": "Orders/min",
               "refId": "A"
             }
@@ -201,7 +201,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*email|online-boutique.*shipping\"}) or 0",
+              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*email|online-boutique.*shipping\"}) or vector(0)",
               "legendFormat": "Pending Orders",
               "refId": "A"
             }
@@ -238,7 +238,7 @@ data:
           "type": "stat",
           "targets": [
             {
-              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*dlq\"}) or 0",
+              "expr": "sum(aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~\"online-boutique.*dlq\"}) or vector(0)",
               "legendFormat": "DLQ Messages",
               "refId": "A"
             }
@@ -322,17 +322,17 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000",
+              "expr": "(histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
               "legendFormat": "Ingress Edge P99",
               "refId": "A"
             },
             {
-              "expr": "histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000",
+              "expr": "(histogram_quantile(0.50, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
               "legendFormat": "Ingress Edge P50",
               "refId": "B"
             },
             {
-              "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_bucket{exported_namespace=\"online-boutique\"}[2m])) by (le)) * 1000",
+              "expr": "(histogram_quantile(0.99, sum(rate(nginx_ingress_controller_ingress_upstream_latency_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
               "legendFormat": "Upstream Pod P99",
               "refId": "C"
             }
@@ -370,22 +370,22 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"2..\"}[1m])) or sum(rate(http_requests_total{status=~\"2..\"}[1m]))",
+              "expr": "sum(rate(nginx_ingress_controller_requests{status=~\"2..\"}[1m])) or vector(0)",
               "legendFormat": "2xx Success",
               "refId": "A"
             },
             {
-              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"3..\"}[1m])) or sum(rate(http_requests_total{status=~\"3..\"}[1m]))",
+              "expr": "sum(rate(nginx_ingress_controller_requests{status=~\"3..\"}[1m])) or vector(0)",
               "legendFormat": "3xx Redirect",
               "refId": "B"
             },
             {
-              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"4..\"}[1m])) or sum(rate(http_requests_total{status=~\"4..\"}[1m]))",
+              "expr": "sum(rate(nginx_ingress_controller_requests{status=~\"4..\"}[1m])) or vector(0)",
               "legendFormat": "4xx Client Error",
               "refId": "C"
             },
             {
-              "expr": "sum(rate(nginx_ingress_controller_requests{exported_namespace=\"online-boutique\",status=~\"5..\"}[1m])) or sum(rate(http_requests_total{status=~\"5..\"}[1m]))",
+              "expr": "sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[1m])) or vector(0)",
               "legendFormat": "5xx Server Error",
               "refId": "D"
             }
@@ -419,12 +419,12 @@ data:
           "type": "timeseries",
           "targets": [
             {
-              "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[1h])) or sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[1h])) or 0) / (sum(rate(http_requests_total[1h])) or sum(rate(nginx_ingress_controller_requests[1h])) or 1) / 0.001",
+              "expr": "((sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[1h])) or vector(0)) / (sum(rate(nginx_ingress_controller_requests[1h])) or vector(1))) / 0.001",
               "legendFormat": "1h Burn Rate (Critical > 14x)",
               "refId": "A"
             },
             {
-              "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[6h])) or sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[6h])) or 0) / (sum(rate(http_requests_total[6h])) or sum(rate(nginx_ingress_controller_requests[6h])) or 1) / 0.001",
+              "expr": "((sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[6h])) or vector(0)) / (sum(rate(nginx_ingress_controller_requests[6h])) or vector(1))) / 0.001",
               "legendFormat": "6h Burn Rate (Warning > 6x)",
               "refId": "B"
             }
