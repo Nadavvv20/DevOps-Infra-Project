@@ -96,6 +96,7 @@ data:
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "description": "Server Response Time (TTFB - Time To First Byte). Google Core Web Vitals: <200ms (Good), 200-500ms (Needs Improvement), >500ms (Poor). Measures backend + network transmission before browser rendering (LCP/Page Load).",
           "fieldConfig": {
             "defaults": {
               "color": { "mode": "thresholds" },
@@ -104,7 +105,7 @@ data:
                 "mode": "absolute",
                 "steps": [
                   { "color": "green", "value": null },
-                  { "color": "yellow", "value": 250 },
+                  { "color": "yellow", "value": 200 },
                   { "color": "red", "value": 500 }
                 ]
               },
@@ -122,12 +123,12 @@ data:
             "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
             "textMode": "auto"
           },
-          "title": "Frontend Latency P99 (SLO <500ms)",
+          "title": "Frontend Response Time (TTFB) P99",
           "type": "stat",
           "targets": [
             {
               "expr": "(histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket[2m])) by (le)) * 1000) or vector(0)",
-              "legendFormat": "P99 (ms)",
+              "legendFormat": "P99 TTFB (ms)",
               "refId": "A"
             }
           ]
@@ -272,7 +273,8 @@ data:
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
-          "title": "Microservice Latency Profiles (P50, P90, P99)",
+          "description": "Server Response Time (TTFB) by percentile (P50, P90, P99) measured at Ingress Edge. Excludes browser rendering.",
+          "title": "Server Response Time (TTFB) Profiles (P50, P90, P99)",
           "type": "timeseries",
           "targets": [
             {
