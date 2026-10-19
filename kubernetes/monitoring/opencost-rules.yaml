@@ -20,6 +20,17 @@ spec:
             summary: "OpenCost FinOps Integration Online"
             description: "OpenCost is actively monitoring AWS il-central-1 infrastructure costs. Current cluster burn rate is ${{ $value | printf \"%.3f\" }}/hr."
 
+        - alert: OpenCostHighIdleWaste
+          expr: (1 - (sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) / sum(kube_node_status_allocatable_cpu_cores))) > 0.70
+          for: 1m
+          labels:
+            severity: warning
+            category: finops
+            namespace: monitoring
+          annotations:
+            summary: "High Cluster Idle Waste Detected"
+            description: "Cluster CPU idle waste is currently {{ $value | humanizePercentage }}. Over 70% of paid CPU capacity is running completely unutilized."
+
         - alert: KubernetesHighCostBurnRate
           expr: sum(node_total_hourly_cost) > 1.00
           for: 2m
