@@ -380,17 +380,18 @@ data:
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "description": "Live traffic volume by HTTP status class. Unstacked so that each class reflects its true value and 5xx errors stay at the 0 baseline.",
           "fieldConfig": {
             "defaults": {
               "color": { "mode": "palette-classic" },
-              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 30, "lineWidth": 2, "stacking": { "group": "A", "mode": "normal" } },
+              "custom": { "axisCenteredZero": false, "axisGridShow": true, "fillOpacity": 10, "lineWidth": 2, "stacking": { "mode": "none" } },
               "unit": "reqps"
             },
             "overrides": [
               { "matcher": { "id": "byName", "options": "2xx Success" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
               { "matcher": { "id": "byName", "options": "3xx Redirect" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
               { "matcher": { "id": "byName", "options": "4xx Client Error" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
-              { "matcher": { "id": "byName", "options": "5xx Server Error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+              { "matcher": { "id": "byName", "options": "5xx Server Error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }, { "id": "custom.lineWidth", "value": 3 }] }
             ]
           },
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
