@@ -19,5 +19,5 @@ export REDIS_PASSWORD="boutique_redis_pass"
 export REDIS_TLS="true"
 export REDIS_TLS_INSECURE="true"
 
-cd "/repos/DevOps Infra Project/tests/smoke"
+cd "/repos/online-boutique-infra/tests/smoke"
 go test -v -run "Test01|Test02|Test04|Test05|Test09|Test10|Test11|Test13" .

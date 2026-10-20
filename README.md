@@ -1,4 +1,4 @@
-﻿# DevOps Infra Project — Online Boutique on AWS EKS
+# Online Boutique Infra — AWS EKS Platform
 
 Production-grade reference architecture for deploying **Google's Online Boutique** (microservices-demo) on **AWS EKS** using Terraform, Karpenter, ArgoCD, and GitHub Actions.
 

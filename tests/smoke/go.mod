@@ -1,4 +1,4 @@
-module github.com/Nadavvv20/DevOps-Infra-Project/tests/smoke
+module github.com/Nadavvv20/online-boutique-infra/tests/smoke
 
 go 1.26.0
 

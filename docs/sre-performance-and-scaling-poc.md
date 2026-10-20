@@ -1,7 +1,7 @@
 # SRE & Performance Engineering POC — Autoscaling, Observability & Resilience
 
 > **Target Audience:** DevOps / SRE Engineers, Platform Leads, Technical Interviewers  
-> **Repository:** `DevOps-Infra-Project` & `online-boutique-gitops`  
+> **Repository:** `online-boutique-infra` & `online-boutique-gitops`  
 > **Environment:** AWS EKS (`il-central-1`), Aurora PostgreSQL, ElastiCache Redis, Karpenter, SQS/SNS, ArgoCD/Rollouts
 
 ---

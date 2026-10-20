@@ -169,6 +169,36 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Pre-destroy Cleanup (EC2 Instances & S3 Versions)
+        run: |
+          CLUSTER_NAME="online-boutique-${{ github.event.inputs.environment }}"
+
+          echo "Purging all objects and versions from Ads S3 bucket to allow clean deletion..."
+          ADS_BUCKET=$(aws s3api list-buckets --query "Buckets[?contains(Name, '${CLUSTER_NAME}-ads-media')].Name" --output text 2>/dev/null || true)
+          if [ -n "$ADS_BUCKET" ] && [ "$ADS_BUCKET" != "None" ]; then
+            echo "Found Ads bucket: $ADS_BUCKET. Purging all objects and versions..."
+            aws s3 rm "s3://$ADS_BUCKET" --recursive 2>/dev/null || true
+            VERSIONS=$(aws s3api list-object-versions --bucket "$ADS_BUCKET" --output json --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' 2>/dev/null || true)
+            if [ -n "$VERSIONS" ] && [ "$VERSIONS" != '{"Objects": null}' ]; then
+              aws s3api delete-objects --bucket "$ADS_BUCKET" --delete "$VERSIONS" 2>/dev/null || true
+            fi
+            MARKERS=$(aws s3api list-object-versions --bucket "$ADS_BUCKET" --output json --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' 2>/dev/null || true)
+            if [ -n "$MARKERS" ] && [ "$MARKERS" != '{"Objects": null}' ]; then
+              aws s3api delete-objects --bucket "$ADS_BUCKET" --delete "$MARKERS" 2>/dev/null || true
+            fi
+          fi
+
+          echo "Checking for remaining EC2 instances in VPC to prevent ENI dependency violations..."
+          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Project,Values=online-boutique" "Name=tag:Environment,Values=${{ github.event.inputs.environment }}" --region ${{ github.event.inputs.aws_region }} --query "Vpcs[0].VpcId" --output text 2>/dev/null || true)
+          if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+            INSTANCES=$(aws ec2 describe-instances --filters "Name=vpc-id,Values=${VPC_ID}" "Name=instance-state-name,Values=running,pending" --region ${{ github.event.inputs.aws_region }} --query "Reservations[].Instances[].InstanceId" --output text 2>/dev/null || true)
+            if [ -n "$INSTANCES" ]; then
+              echo "Terminating remaining EC2 instances in VPC $VPC_ID: $INSTANCES"
+              aws ec2 terminate-instances --instance-ids $INSTANCES --region ${{ github.event.inputs.aws_region }} || true
+              aws ec2 wait instance-terminated --instance-ids $INSTANCES --region ${{ github.event.inputs.aws_region }} 2>/dev/null || sleep 30
+            fi
+          fi
+
       - name: Terraform Targeted Destroy
         run: |
           if [ "${{ github.event.inputs.keep_vpc }}" == "true" ]; then
